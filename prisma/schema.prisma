@@ -17,129 +17,107 @@ enum Role {
 }
 
 enum LeadSource {
-  MANUAL
-  WEBSITE
   WHATSAPP
-  FACEBOOK
-  INSTAGRAM
-  GOOGLE_ADS
-  REFERRAL
-  PHONE
-  EMAIL
-  OTHER
+  WEBSITE
+  FB
+  IG
+  MANUAL
 }
 
 enum LeadPriority {
   LOW
   MEDIUM
   HIGH
-  URGENT
+  VIP
 }
 
 enum LeadActivityType {
   NOTE
+  STAGE_CHANGE
+  ASSIGNMENT
   CALL
   EMAIL
-  WHATSAPP
-  MEETING
-  STATUS_CHANGE
-  ASSIGNMENT
-  FOLLOW_UP
-  ESCALATION
-  FILE_UPLOAD
   SYSTEM
 }
 
 enum FollowUpType {
-  CALL
-  EMAIL
-  WHATSAPP
-  SMS
-  MEETING
+  REMINDER
+  QUOTATION
+  DOCUMENT
+  PAYMENT
+  RE_ENGAGE
 }
 
 enum FollowUpStatus {
   PENDING
+  SENT
   COMPLETED
-  MISSED
   CANCELLED
 }
 
 enum TriggerType {
   STAGE_CHANGE
   LEAD_CREATED
-  FOLLOW_UP_MISSED
-  NO_ACTIVITY
-  CALLBACK_MISSED
+  LEAD_INACTIVE
 }
 
 enum CallbackStatus {
   SCHEDULED
   COMPLETED
   MISSED
-  CANCELLED
 }
 
 enum ConversationChannel {
   MANUAL
-  WHATSAPP
-  EMAIL
-  SMS
-  PHONE
-  WEBCHAT
 }
 
 enum ConversationStatus {
   ACTIVE
-  WAITING
-  RESOLVED
+  HUMAN_TAKEOVER
   CLOSED
 }
 
 enum MessageSenderType {
-  AGENT
   CUSTOMER
-  SYSTEM
+  BOT
+  AGENT
 }
 
 enum MessageType {
   TEXT
   IMAGE
   FILE
-  AUDIO
-  VIDEO
-  TEMPLATE
 }
 
 enum NotificationType {
   LEAD_ASSIGNED
   FOLLOW_UP_DUE
-  CALLBACK_DUE
   ESCALATION
-  BROADCAST
-  SYSTEM
-  MENTION
+  CALLBACK
+  NEW_MESSAGE
 }
 
 enum EscalationReason {
-  MISSED_FOLLOW_UP
-  NO_RESPONSE
-  CUSTOMER_COMPLAINT
-  SLA_BREACH
-  MANUAL
+  REPEATED_FAILURE
+  COMPLEX_REQUEST
+  PAYMENT_ISSUE
+  TECHNICAL_ISSUE
+  VIP_CLIENT
+  CUSTOMER_REQUEST
 }
 
 enum EscalationStatus {
   OPEN
-  IN_PROGRESS
+  ACKNOWLEDGED
   RESOLVED
   CLOSED
 }
 
 enum BroadcastChannel {
-  WHATSAPP
   EMAIL
   SMS
+  WHATSAPP
+  IN_APP
 }
 
 enum BroadcastTargetType {
@@ -164,23 +142,21 @@ enum BroadcastRecipientStatus {
 }
 
 enum WidgetType {
-  LEAD_COUNT
-  LEAD_BY_STAGE
-  LEAD_BY_SOURCE
-  FOLLOW_UP_DUE
-  CALLBACK_DUE
-  CONVERSION_RATE
-  REVENUE
-  AGENT_PERFORMANCE
-  RECENT_ACTIVITY
-  CUSTOM_CHART
+  STAT_COUNTER
+  BAR_CHART
+  PIE
+  PROGRESS
+  LIST
+  LINE
+  TABLE
+  FUNNEL
+  ACTIVITY
 }
 
 enum WidgetSize {
   SMALL
   MEDIUM
   LARGE
-  FULL
 }
 
 enum SubscriptionStatus {
