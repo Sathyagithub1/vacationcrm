@@ -1,0 +1,698 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  AGENT
+}
+
+enum LeadSource {
+  MANUAL
+  WEBSITE
+  WHATSAPP
+  FACEBOOK
+  INSTAGRAM
+  GOOGLE_ADS
+  REFERRAL
+  PHONE
+  EMAIL
+  OTHER
+}
+
+enum LeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum LeadActivityType {
+  NOTE
+  CALL
+  EMAIL
+  WHATSAPP
+  MEETING
+  STATUS_CHANGE
+  ASSIGNMENT
+  FOLLOW_UP
+  ESCALATION
+  FILE_UPLOAD
+  SYSTEM
+}
+
+enum FollowUpType {
+  CALL
+  EMAIL
+  WHATSAPP
+  SMS
+  MEETING
+}
+
+enum FollowUpStatus {
+  PENDING
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum TriggerType {
+  STAGE_CHANGE
+  LEAD_CREATED
+  FOLLOW_UP_MISSED
+  NO_ACTIVITY
+  CALLBACK_MISSED
+}
+
+enum CallbackStatus {
+  SCHEDULED
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum ConversationChannel {
+  MANUAL
+  WHATSAPP
+  EMAIL
+  SMS
+  PHONE
+  WEBCHAT
+}
+
+enum ConversationStatus {
+  ACTIVE
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+enum MessageSenderType {
+  AGENT
+  CUSTOMER
+  SYSTEM
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+  AUDIO
+  VIDEO
+  TEMPLATE
+}
+
+enum NotificationType {
+  LEAD_ASSIGNED
+  FOLLOW_UP_DUE
+  CALLBACK_DUE
+  ESCALATION
+  BROADCAST
+  SYSTEM
+  MENTION
+}
+
+enum EscalationReason {
+  MISSED_FOLLOW_UP
+  NO_RESPONSE
+  CUSTOMER_COMPLAINT
+  SLA_BREACH
+  MANUAL
+}
+
+enum EscalationStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum BroadcastChannel {
+  WHATSAPP
+  EMAIL
+  SMS
+}
+
+enum BroadcastTargetType {
+  ALL_CUSTOMERS
+  DEPARTMENT
+  STAGE
+  CUSTOM_FILTER
+}
+
+enum BroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+}
+
+enum BroadcastRecipientStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+enum WidgetType {
+  LEAD_COUNT
+  LEAD_BY_STAGE
+  LEAD_BY_SOURCE
+  FOLLOW_UP_DUE
+  CALLBACK_DUE
+  CONVERSION_RATE
+  REVENUE
+  AGENT_PERFORMANCE
+  RECENT_ACTIVITY
+  CUSTOM_CHART
+}
+
+enum WidgetSize {
+  SMALL
+  MEDIUM
+  LARGE
+  FULL
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIAL
+  SUSPENDED
+  CANCELLED
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id                   String             @id @default(uuid()) @map("id")
+  name                 String             @map("name")
+  slug                 String             @unique @map("slug")
+  domain               String?            @unique @map("domain")
+  logoUrl              String?            @map("logo_url")
+  faviconUrl           String?            @map("favicon_url")
+  productName          String             @default("Holiday Delight CRM") @map("product_name")
+  themeConfig          Json?              @map("theme_config")
+  loginBgUrl           String?            @map("login_bg_url")
+  emailTemplateConfig  Json?              @map("email_template_config")
+  notificationSettings Json?              @map("notification_settings")
+  timezone             String             @default("Asia/Kolkata") @map("timezone")
+  currency             String             @default("INR") @map("currency")
+  address              String?            @map("address")
+  subscriptionStatus   SubscriptionStatus @default(ACTIVE) @map("subscription_status")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  users              User[]
+  invitations        Invitation[]
+  departments        Department[]
+  pipelineStages     PipelineStage[]
+  customers          Customer[]
+  leads              Lead[]
+  leadActivities     LeadActivity[]
+  followUps          FollowUp[]
+  followUpRules      FollowUpRule[]
+  callbacks          Callback[]
+  conversations      Conversation[]
+  messages           Message[]
+  notifications      Notification[]
+  escalations        Escalation[]
+  broadcasts         Broadcast[]
+  cannedResponses    CannedResponse[]
+  auditLogs          AuditLog[]
+  fileUploads        FileUpload[]
+  dashboardWidgets   DashboardWidget[]
+
+  @@map("tenants")
+}
+
+model User {
+  id                      String    @id @default(uuid()) @map("id")
+  tenantId                String    @map("tenant_id")
+  email                   String    @map("email")
+  passwordHash            String    @map("password_hash")
+  name                    String    @map("name")
+  phone                   String?   @map("phone")
+  avatarUrl               String?   @map("avatar_url")
+  role                    Role      @map("role")
+  departmentId            String?   @map("department_id")
+  notificationPreferences Json?     @map("notification_preferences")
+  isActive                Boolean   @default(true) @map("is_active")
+  lastSeenAt              DateTime? @map("last_seen_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+
+  tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department          Department?         @relation(fields: [departmentId], references: [id])
+  assignedLeads       Lead[]              @relation("LeadAssignee")
+  activities          LeadActivity[]
+  followUps           FollowUp[]
+  callbacks           Callback[]
+  conversations       Conversation[]
+  notifications       Notification[]
+  escalationsFrom     Escalation[]        @relation("EscalationFrom")
+  escalationsTo       Escalation[]        @relation("EscalationTo")
+  broadcasts          Broadcast[]
+  cannedResponses     CannedResponse[]
+  fileUploads         FileUpload[]
+  invitationsSent     Invitation[]
+  auditLogs           AuditLog[]
+  passwordResetTokens PasswordResetToken[]
+  dashboardWidgets    DashboardWidget[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Invitation {
+  id           String    @id @default(uuid()) @map("id")
+  tenantId     String    @map("tenant_id")
+  email        String    @map("email")
+  role         Role      @map("role")
+  departmentId String?   @map("department_id")
+  invitedBy    String    @map("invited_by")
+  token        String    @unique @map("token")
+  expiresAt    DateTime  @map("expires_at")
+  acceptedAt   DateTime? @map("accepted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inviter    User        @relation(fields: [invitedBy], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  @@index([tenantId])
+  @@index([token])
+  @@map("invitations")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @map("id")
+  userId    String    @map("user_id")
+  token     String    @unique @map("token")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("password_reset_tokens")
+}
+
+model Department {
+  id                 String   @id @default(uuid()) @map("id")
+  tenantId           String   @map("tenant_id")
+  name               String   @map("name")
+  slug               String   @map("slug")
+  description        String?  @map("description")
+  icon               String?  @map("icon")
+  color              String?  @map("color")
+  contactEmail       String?  @map("contact_email")
+  contactPhone       String?  @map("contact_phone")
+  websiteUrl         String?  @map("website_url")
+  knowledgeBaseConfig Json?   @map("knowledge_base_config")
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users          User[]
+  pipelineStages PipelineStage[]
+  leads          Lead[]
+  followUpRules  FollowUpRule[]
+  callbacks      Callback[]
+  invitations    Invitation[]
+  cannedResponses CannedResponse[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("departments")
+}
+
+model PipelineStage {
+  id           String   @id @default(uuid()) @map("id")
+  tenantId     String   @map("tenant_id")
+  departmentId String?  @map("department_id")
+  name         String   @map("name")
+  slug         String   @map("slug")
+  color        String   @default("#6B7280") @map("color")
+  position     Int      @map("position")
+  isDefault    Boolean  @default(false) @map("is_default")
+  isSystem     Boolean  @default(false) @map("is_system")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id])
+  leads      Lead[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("pipeline_stages")
+}
+
+model Customer {
+  id             String    @id @default(uuid()) @map("id")
+  tenantId       String    @map("tenant_id")
+  name           String    @map("name")
+  email          String?   @map("email")
+  mobile         String    @map("mobile")
+  alternatePhone String?   @map("alternate_phone")
+  address        String?   @map("address")
+  notes          String?   @map("notes")
+  totalLeads     Int       @default(0) @map("total_leads")
+  lastLeadDate   DateTime? @map("last_lead_date")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leads               Lead[]
+  broadcastRecipients BroadcastRecipient[]
+
+  @@unique([tenantId, mobile])
+  @@index([tenantId])
+  @@map("customers")
+}
+
+model Lead {
+  id                 String       @id @default(uuid()) @map("id")
+  tenantId           String       @map("tenant_id")
+  departmentId       String       @map("department_id")
+  customerId         String       @map("customer_id")
+  destination        String?      @map("destination")
+  travelDate         DateTime?    @map("travel_date")
+  numPassengers      Int?         @map("num_passengers")
+  specialRequirement String?      @map("special_requirement")
+  source             LeadSource   @default(MANUAL) @map("source")
+  stageId            String       @map("stage_id")
+  assignedTo         String?      @map("assigned_to")
+  priority           LeadPriority @default(MEDIUM) @map("priority")
+  isFutureInterest   Boolean      @default(false) @map("is_future_interest")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department    Department     @relation(fields: [departmentId], references: [id])
+  customer      Customer       @relation(fields: [customerId], references: [id])
+  stage         PipelineStage  @relation(fields: [stageId], references: [id])
+  assignee      User?          @relation("LeadAssignee", fields: [assignedTo], references: [id])
+  activities    LeadActivity[]
+  followUps     FollowUp[]
+  callbacks     Callback[]
+  conversations Conversation[]
+  escalations   Escalation[]
+  fileUploads   FileUpload[]
+
+  @@index([tenantId])
+  @@index([tenantId, departmentId])
+  @@index([tenantId, stageId])
+  @@index([tenantId, assignedTo])
+  @@map("leads")
+}
+
+model LeadActivity {
+  id        String           @id @default(uuid()) @map("id")
+  tenantId  String           @map("tenant_id")
+  leadId    String           @map("lead_id")
+  userId    String?          @map("user_id")
+  type      LeadActivityType @map("type")
+  content   Json?            @map("content")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([leadId])
+  @@map("lead_activities")
+}
+
+model FollowUp {
+  id              String         @id @default(uuid()) @map("id")
+  tenantId        String         @map("tenant_id")
+  leadId          String         @map("lead_id")
+  assignedTo      String         @map("assigned_to")
+  type            FollowUpType   @map("type")
+  scheduledAt     DateTime       @map("scheduled_at")
+  completedAt     DateTime?      @map("completed_at")
+  status          FollowUpStatus @default(PENDING) @map("status")
+  messageTemplate String?        @map("message_template")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead     Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignee User   @relation(fields: [assignedTo], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, status, scheduledAt])
+  @@map("follow_ups")
+}
+
+model FollowUpRule {
+  id              String       @id @default(uuid()) @map("id")
+  tenantId        String       @map("tenant_id")
+  departmentId    String?      @map("department_id")
+  triggerType     TriggerType  @map("trigger_type")
+  triggerValue    String?      @map("trigger_value")
+  followUpType    FollowUpType @map("follow_up_type")
+  delayHours      Int          @map("delay_hours")
+  messageTemplate String?      @map("message_template")
+  isActive        Boolean      @default(true) @map("is_active")
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  @@index([tenantId])
+  @@map("follow_up_rules")
+}
+
+model Callback {
+  id            String         @id @default(uuid()) @map("id")
+  tenantId      String         @map("tenant_id")
+  leadId        String         @map("lead_id")
+  departmentId  String         @map("department_id")
+  assignedTo    String?        @map("assigned_to")
+  preferredTime DateTime       @map("preferred_time")
+  status        CallbackStatus @default(SCHEDULED) @map("status")
+  notes         String?        @map("notes")
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead       Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id])
+  assignee   User?      @relation(fields: [assignedTo], references: [id])
+
+  @@index([tenantId])
+  @@map("callbacks")
+}
+
+model Conversation {
+  id             String             @id @default(uuid()) @map("id")
+  tenantId       String             @map("tenant_id")
+  leadId         String             @map("lead_id")
+  channel        ConversationChannel @default(MANUAL) @map("channel")
+  status         ConversationStatus @default(ACTIVE) @map("status")
+  assignedAgentId String?           @map("assigned_agent_id")
+  startedAt      DateTime           @default(now()) @map("started_at")
+  closedAt       DateTime?          @map("closed_at")
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead        Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  agent       User?        @relation(fields: [assignedAgentId], references: [id])
+  messages    Message[]
+  escalations Escalation[]
+
+  @@index([tenantId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String            @id @default(uuid()) @map("id")
+  tenantId       String            @map("tenant_id")
+  conversationId String            @map("conversation_id")
+  senderType     MessageSenderType @map("sender_type")
+  senderId       String?           @map("sender_id")
+  content        String            @map("content")
+  messageType    MessageType       @default(TEXT) @map("message_type")
+  fileUrl        String?           @map("file_url")
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([tenantId])
+  @@map("messages")
+}
+
+model Notification {
+  id           String           @id @default(uuid()) @map("id")
+  tenantId     String           @map("tenant_id")
+  userId       String           @map("user_id")
+  type         NotificationType @map("type")
+  title        String           @map("title")
+  body         String           @map("body")
+  data         Json?            @map("data")
+  channelsSent Json             @default("[]") @map("channels_sent")
+  readAt       DateTime?        @map("read_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([tenantId])
+  @@map("notifications")
+}
+
+model Escalation {
+  id             String           @id @default(uuid()) @map("id")
+  tenantId       String           @map("tenant_id")
+  leadId         String           @map("lead_id")
+  conversationId String?          @map("conversation_id")
+  reason         EscalationReason @map("reason")
+  escalatedFrom  String           @map("escalated_from")
+  escalatedTo    String           @map("escalated_to")
+  status         EscalationStatus @default(OPEN) @map("status")
+  notes          String?          @map("notes")
+  resolvedAt     DateTime?        @map("resolved_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead         Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+  fromUser     User          @relation("EscalationFrom", fields: [escalatedFrom], references: [id])
+  toUser       User          @relation("EscalationTo", fields: [escalatedTo], references: [id])
+
+  @@index([tenantId])
+  @@map("escalations")
+}
+
+model Broadcast {
+  id              String              @id @default(uuid()) @map("id")
+  tenantId        String              @map("tenant_id")
+  createdBy       String              @map("created_by")
+  title           String              @map("title")
+  content         String              @map("content")
+  channel         BroadcastChannel    @map("channel")
+  targetType      BroadcastTargetType @map("target_type")
+  targetFilter    Json?               @map("target_filter")
+  status          BroadcastStatus     @default(DRAFT) @map("status")
+  scheduledAt     DateTime?           @map("scheduled_at")
+  sentAt          DateTime?           @map("sent_at")
+  totalRecipients Int                 @default(0) @map("total_recipients")
+  deliveredCount  Int                 @default(0) @map("delivered_count")
+  failedCount     Int                 @default(0) @map("failed_count")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  tenant     Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator    User                 @relation(fields: [createdBy], references: [id])
+  recipients BroadcastRecipient[]
+
+  @@index([tenantId])
+  @@map("broadcasts")
+}
+
+model BroadcastRecipient {
+  id           String                   @id @default(uuid()) @map("id")
+  broadcastId  String                   @map("broadcast_id")
+  customerId   String                   @map("customer_id")
+  status       BroadcastRecipientStatus @default(PENDING) @map("status")
+  deliveredAt  DateTime?                @map("delivered_at")
+  errorMessage String?                  @map("error_message")
+
+  broadcast Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  customer  Customer  @relation(fields: [customerId], references: [id])
+
+  @@index([broadcastId])
+  @@map("broadcast_recipients")
+}
+
+model CannedResponse {
+  id           String   @id @default(uuid()) @map("id")
+  tenantId     String   @map("tenant_id")
+  departmentId String?  @map("department_id")
+  title        String   @map("title")
+  content      String   @map("content")
+  shortcut     String   @map("shortcut")
+  createdBy    String   @map("created_by")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id])
+  creator    User        @relation(fields: [createdBy], references: [id])
+
+  @@index([tenantId])
+  @@map("canned_responses")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @map("id")
+  tenantId   String   @map("tenant_id")
+  userId     String?  @map("user_id")
+  action     String   @map("action")
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, action])
+  @@index([tenantId])
+  @@map("audit_logs")
+}
+
+model FileUpload {
+  id         String   @id @default(uuid()) @map("id")
+  tenantId   String   @map("tenant_id")
+  leadId     String?  @map("lead_id")
+  uploadedBy String   @map("uploaded_by")
+  fileName   String   @map("file_name")
+  filePath   String   @map("file_path")
+  fileType   String   @map("file_type")
+  fileSize   Int      @map("file_size")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead     Lead?  @relation(fields: [leadId], references: [id])
+  uploader User   @relation(fields: [uploadedBy], references: [id])
+
+  @@index([tenantId])
+  @@map("file_uploads")
+}
+
+model DashboardWidget {
+  id              String     @id @default(uuid()) @map("id")
+  tenantId        String     @map("tenant_id")
+  userId          String     @map("user_id")
+  widgetType      WidgetType @map("widget_type")
+  title           String     @map("title")
+  dataSource      String     @map("data_source")
+  filters         Json?      @map("filters")
+  size            WidgetSize @default(SMALL) @map("size")
+  position        Json?      @map("position")
+  refreshInterval Int        @default(300) @map("refresh_interval")
+  config          Json?      @map("config")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@index([tenantId])
+  @@map("dashboard_widgets")
+}
