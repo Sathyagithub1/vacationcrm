@@ -1,0 +1,78 @@
+import { Role } from "@prisma/client";
+import { Permission } from "@/types";
+
+const allPermissions: Permission[] = [
+  "dashboard:view",
+  "leads:view",
+  "leads:create",
+  "leads:edit",
+  "leads:delete",
+  "leads:assign",
+  "leads:bulk",
+  "conversations:view",
+  "conversations:takeover",
+  "follow-ups:view",
+  "follow-ups:create",
+  "callbacks:view",
+  "callbacks:create",
+  "departments:manage",
+  "customers:view",
+  "broadcasts:send",
+  "reports:view",
+  "users:manage",
+  "settings:general",
+  "settings:branding",
+  "settings:pipeline",
+  "settings:notifications",
+  "settings:integrations",
+  "settings:billing",
+];
+
+const rolePermissions: Record<Role, Permission[]> = {
+  SUPER_ADMIN: allPermissions,
+
+  ADMIN: allPermissions.filter((p) => p !== "settings:billing"),
+
+  MANAGER: [
+    "dashboard:view",
+    "leads:view",
+    "leads:create",
+    "leads:edit",
+    "leads:assign",
+    "leads:bulk",
+    "conversations:view",
+    "conversations:takeover",
+    "follow-ups:view",
+    "follow-ups:create",
+    "callbacks:view",
+    "callbacks:create",
+    "customers:view",
+    "broadcasts:send",
+    "reports:view",
+    "settings:pipeline",
+  ],
+
+  AGENT: [
+    "dashboard:view",
+    "leads:view",
+    "leads:create",
+    "leads:edit",
+    "conversations:view",
+    "follow-ups:view",
+    "follow-ups:create",
+    "callbacks:view",
+    "callbacks:create",
+    "customers:view",
+    "reports:view",
+  ],
+};
+
+export function hasPermission(role: Role, permission: Permission): boolean {
+  const permissions = rolePermissions[role];
+  if (!permissions) return false;
+  return permissions.includes(permission);
+}
+
+export function getPermissions(role: Role): Permission[] {
+  return rolePermissions[role] ?? [];
+}
