@@ -31,9 +31,9 @@ const allPermissions: Permission[] = [
 const rolePermissions: Record<Role, Permission[]> = {
   SUPER_ADMIN: allPermissions,
 
-  ADMIN: allPermissions.filter((p) => p !== "settings:billing"),
+  COMPANY_ADMIN: allPermissions.filter((p) => p !== "settings:billing"),
 
-  MANAGER: [
+  DEPT_MANAGER: [
     "dashboard:view",
     "leads:view",
     "leads:create",
@@ -58,10 +58,20 @@ const rolePermissions: Record<Role, Permission[]> = {
     "leads:create",
     "leads:edit",
     "conversations:view",
+    "conversations:takeover",
     "follow-ups:view",
     "follow-ups:create",
     "callbacks:view",
     "callbacks:create",
+    "customers:view",
+    "reports:view",
+  ],
+
+  VIEWER: [
+    "dashboard:view",
+    "leads:view",
+    "follow-ups:view",
+    "callbacks:view",
     "customers:view",
     "reports:view",
   ],

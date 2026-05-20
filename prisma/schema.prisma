@@ -10,9 +10,10 @@ datasource db {
 
 enum Role {
   SUPER_ADMIN
-  ADMIN
-  MANAGER
+  COMPANY_ADMIN
+  DEPT_MANAGER
   AGENT
+  VIEWER
 }
 
 enum LeadSource {
