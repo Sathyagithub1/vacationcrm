@@ -2,6 +2,8 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
+import { logAudit } from "@/modules/audit/audit.service";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -11,9 +13,32 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) {
           return null;
+        }
+
+        // Rate limit: 5 attempts per 15 minutes per email
+        const email = credentials.email.toLowerCase();
+        const rlKey = `login:${email}`;
+        const rlResult = await rateLimit(rlKey, 5, 15 * 60 * 1000);
+
+        if (!rlResult.success) {
+          // Log the lockout to audit log
+          const existingUser = await prisma.user.findFirst({
+            where: { email, isActive: true },
+          });
+          if (existingUser) {
+            await logAudit({
+              tenantId: existingUser.tenantId,
+              userId: existingUser.id,
+              action: "auth.lockout",
+              entityType: "User",
+              entityId: existingUser.id,
+              newValue: { reason: "Too many failed login attempts", email },
+            }).catch(() => {});
+          }
+          throw new Error("Too many login attempts. Please try again in 15 minutes.");
         }
 
         const user = await prisma.user.findFirst({
