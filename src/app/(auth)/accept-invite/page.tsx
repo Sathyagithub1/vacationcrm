@@ -5,6 +5,11 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  fetchPublicBranding,
+  tenantInitials,
+  type PublicTenantBranding,
+} from "@/lib/tenant-branding";
 
 interface InviteInfo {
   email: string;
@@ -25,6 +30,11 @@ export default function AcceptInvitePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [branding, setBranding] = useState<PublicTenantBranding | null>(null);
+
+  useEffect(() => {
+    fetchPublicBranding().then(setBranding);
+  }, []);
 
   const validateToken = useCallback(async () => {
     if (!token) {
@@ -140,9 +150,17 @@ export default function AcceptInvitePage() {
   return (
     <div>
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500 text-xl font-bold text-white">
-          HD
-        </div>
+        {branding?.logoUrl ? (
+          <img
+            src={branding.logoUrl}
+            alt={branding.name}
+            className="mx-auto mb-3 h-12 w-12 rounded-xl object-contain"
+          />
+        ) : (
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500 text-xl font-bold text-white">
+            {branding ? tenantInitials(branding.name) : ""}
+          </div>
+        )}
         <h1 className="text-xl font-semibold text-gray-900">
           Accept your invitation
         </h1>

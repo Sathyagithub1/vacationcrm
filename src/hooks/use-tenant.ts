@@ -17,10 +17,10 @@ export interface TenantConfig {
 }
 
 const defaultTenant: TenantConfig = {
-  name: "Holiday Delight",
+  name: "CRM",
   logo: null,
   favicon: null,
-  productName: "Holiday Delight CRM",
+  productName: "CRM",
   primaryColor: "#FF6B35",
   secondaryColor: "#FF9F1C",
   primaryLight: "#FFF3E0",

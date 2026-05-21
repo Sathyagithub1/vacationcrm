@@ -101,7 +101,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             />
           ) : (
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary-400 to-primary-600 text-sm font-bold text-white">
-              HD
+              {tenant.name.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase()}
             </div>
           )}
           <span className="text-sm font-semibold text-gray-800">

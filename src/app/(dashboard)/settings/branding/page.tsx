@@ -29,7 +29,7 @@ export default function BrandingSettingsPage() {
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
 
-  const [productName, setProductName] = React.useState("Holiday Delight CRM");
+  const [productName, setProductName] = React.useState("");
   const [primaryColor, setPrimaryColor] = React.useState("#FF6B35");
   const [secondaryColor, setSecondaryColor] = React.useState("#FF9F1C");
   const [selectedPreset, setSelectedPreset] = React.useState<string | null>("Sunset Orange");
@@ -51,7 +51,7 @@ export default function BrandingSettingsPage() {
         const res = await fetch("/api/tenants");
         if (res.ok) {
           const { tenant } = await res.json();
-          setProductName(tenant.productName || "Holiday Delight CRM");
+          setProductName(tenant.productName || "");
           setLogoUrl(tenant.logoUrl || null);
           setFaviconUrl(tenant.faviconUrl || null);
           setLoginBgUrl(tenant.loginBgUrl || null);
@@ -185,7 +185,7 @@ export default function BrandingSettingsPage() {
           label="Name shown in sidebar, title bar, and emails"
           value={productName}
           onChange={(e) => setProductName(e.target.value)}
-          placeholder="Holiday Delight CRM"
+          placeholder="Your Product Name"
         />
       </div>
 

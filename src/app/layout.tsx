@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Holiday Delight CRM",
+  title: "CRM",
   description: "Multi-tenant travel CRM platform",
 };
 

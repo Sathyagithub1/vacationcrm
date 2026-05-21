@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { requirePermission, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { logAudit } from "@/modules/audit/audit.service";
 import { generateToken } from "@/lib/utils";
@@ -89,14 +90,21 @@ export async function POST(request: Request) {
 
     const inviteUrl = `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/accept-invite?token=${token}`;
 
+    // Look up tenant product name for the email
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { productName: true },
+    });
+    const productName = tenant?.productName || "CRM";
+
     await sendEmail({
       to: normalizedEmail,
-      subject: "You've been invited to Holiday Delight CRM",
-      body: `You have been invited to join Holiday Delight CRM as ${role.toLowerCase()}.\n\nClick the link below to accept your invitation and create your account:\n\n${inviteUrl}\n\nThis invitation expires in 7 days.`,
+      subject: `You've been invited to ${productName}`,
+      body: `You have been invited to join ${productName} as ${role.toLowerCase()}.\n\nClick the link below to accept your invitation and create your account:\n\n${inviteUrl}\n\nThis invitation expires in 7 days.`,
       html: `
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
           <h2 style="color: #1a1a1a;">You're invited!</h2>
-          <p style="color: #555;">You have been invited to join <strong>Holiday Delight CRM</strong> as <strong>${role.toLowerCase()}</strong>.</p>
+          <p style="color: #555;">You have been invited to join <strong>${productName}</strong> as <strong>${role.toLowerCase()}</strong>.</p>
           <p style="margin: 24px 0;">
             <a href="${inviteUrl}" style="display: inline-block; background: #f97316; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">
               Accept Invitation

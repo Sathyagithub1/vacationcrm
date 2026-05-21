@@ -1,15 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  fetchPublicBranding,
+  tenantInitials,
+  type PublicTenantBranding,
+} from "@/lib/tenant-branding";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
+  const [branding, setBranding] = useState<PublicTenantBranding | null>(null);
+
+  useEffect(() => {
+    fetchPublicBranding().then(setBranding);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,9 +48,17 @@ export default function ForgotPasswordPage() {
   return (
     <div>
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500 text-xl font-bold text-white">
-          HD
-        </div>
+        {branding?.logoUrl ? (
+          <img
+            src={branding.logoUrl}
+            alt={branding.name}
+            className="mx-auto mb-3 h-12 w-12 rounded-xl object-contain"
+          />
+        ) : (
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500 text-xl font-bold text-white">
+            {branding ? tenantInitials(branding.name) : ""}
+          </div>
+        )}
         <h1 className="text-xl font-semibold text-gray-900">
           Reset your password
         </h1>

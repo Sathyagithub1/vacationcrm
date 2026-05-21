@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { createPasswordReset } from "@/modules/auth/password-reset.service";
 import { sendEmail } from "@/modules/notifications/channels/email.channel";
 
@@ -14,17 +15,30 @@ export async function POST(request: Request) {
     const result = await createPasswordReset(email);
 
     if (result) {
+      // Look up the user's tenant to get product name for the email
+      const user = await prisma.user.findFirst({
+        where: { id: result.userId },
+        select: { tenantId: true },
+      });
+      const tenant = user
+        ? await prisma.tenant.findUnique({
+            where: { id: user.tenantId },
+            select: { productName: true },
+          })
+        : null;
+      const productName = tenant?.productName || "CRM";
+
       const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
       const resetUrl = `${baseUrl}/reset-password?token=${result.token}`;
 
       await sendEmail({
         to: result.email,
-        subject: "Reset your Holiday Delight CRM password",
+        subject: `Reset your ${productName} password`,
         body: `You requested a password reset. Click the link below to reset your password:\n\n${resetUrl}\n\nThis link expires in 1 hour. If you did not request this, please ignore this email.`,
         html: `
           <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
             <h2 style="color: #1a1a1a;">Reset your password</h2>
-            <p style="color: #555;">You requested a password reset for your Holiday Delight CRM account.</p>
+            <p style="color: #555;">You requested a password reset for your ${productName} account.</p>
             <p style="margin: 24px 0;">
               <a href="${resetUrl}" style="display: inline-block; background: #f97316; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">
                 Reset Password

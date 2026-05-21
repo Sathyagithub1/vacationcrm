@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  fetchPublicBranding,
+  tenantInitials,
+  type PublicTenantBranding,
+} from "@/lib/tenant-branding";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +18,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [branding, setBranding] = useState<PublicTenantBranding | null>(null);
+
+  useEffect(() => {
+    fetchPublicBranding().then(setBranding);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,11 +51,19 @@ export default function LoginPage() {
   return (
     <div>
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500 text-xl font-bold text-white">
-          HD
-        </div>
+        {branding?.logoUrl ? (
+          <img
+            src={branding.logoUrl}
+            alt={branding.name}
+            className="mx-auto mb-3 h-12 w-12 rounded-xl object-contain"
+          />
+        ) : (
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500 text-xl font-bold text-white">
+            {branding ? tenantInitials(branding.name) : ""}
+          </div>
+        )}
         <h1 className="text-xl font-semibold text-gray-900">
-          Holiday Delight CRM
+          {branding?.productName ?? "CRM"}
         </h1>
         <p className="mt-1 text-sm text-gray-500">
           Sign in to your account
