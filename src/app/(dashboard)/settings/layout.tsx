@@ -11,6 +11,7 @@ import {
   GitBranch,
   Bell,
   Plug,
+  ScrollText,
 } from "lucide-react";
 
 const settingsTabs = [
@@ -20,6 +21,7 @@ const settingsTabs = [
   { label: "Pipeline", href: "/settings/pipeline", icon: GitBranch },
   { label: "Notifications", href: "/settings/notifications", icon: Bell },
   { label: "Integrations", href: "/settings/integrations", icon: Plug },
+  { label: "Audit Log", href: "/settings/audit", icon: ScrollText },
 ];
 
 export default function SettingsLayout({
