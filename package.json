@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx scripts/seed.ts",
-    "db:reset": "npx prisma migrate reset && npm run seed"
+    "db:reset": "npx prisma migrate reset && npm run seed",
+    "workers": "tsx src/workers/index.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",
