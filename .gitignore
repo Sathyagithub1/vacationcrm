@@ -43,7 +43,7 @@ next-env.d.ts
 # project-specific
 .env
 .env.local
-uploads/
+/uploads/
 backups/
 .superpowers/
 unpacked/

@@ -9,11 +9,16 @@ import {
   Tag,
   Building2,
   FileText,
+  Upload,
+  Download,
+  Trash2,
+  File,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/loading";
 
 const priorityVariant: Record<string, "default" | "info" | "warning" | "success" | "danger" | "primary"> = {
   LOW: "default",
@@ -242,12 +247,168 @@ export function LeadDetailPanel({
         </div>
       </Card>
 
-      {/* File Attachments placeholder */}
-      <Card header="Attachments">
-        <p className="text-sm text-gray-400">
-          File attachments will be available here.
-        </p>
-      </Card>
+      {/* File Attachments */}
+      <LeadAttachments leadId={lead.id} />
     </div>
+  );
+}
+
+// ---- Attachments sub-component ----
+
+interface FileRecord {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  createdAt: string;
+  uploader: { id: string; name: string };
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const ACCEPT_TYPES = ".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx";
+
+function LeadAttachments({ leadId }: { leadId: string }) {
+  const [files, setFiles] = React.useState<FileRecord[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [uploading, setUploading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const fetchFiles = React.useCallback(async () => {
+    try {
+      const res = await fetch(`/api/uploads?leadId=${leadId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(data.files || []);
+      }
+    } catch {
+      // silent
+    } finally {
+      setLoading(false);
+    }
+  }, [leadId]);
+
+  React.useEffect(() => {
+    fetchFiles();
+  }, [fetchFiles]);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("leadId", leadId);
+
+      const res = await fetch("/api/uploads", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Upload failed");
+      }
+
+      await fetchFiles();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function handleDelete(fileId: string) {
+    if (!confirm("Delete this file?")) return;
+    try {
+      const res = await fetch(`/api/uploads/${fileId}`, { method: "DELETE" });
+      if (res.ok) {
+        setFiles((prev) => prev.filter((f) => f.id !== fileId));
+      }
+    } catch {
+      // silent
+    }
+  }
+
+  return (
+    <Card header="Attachments">
+      <div className="space-y-3">
+        {/* Upload button */}
+        <div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept={ACCEPT_TYPES}
+            onChange={handleUpload}
+            className="hidden"
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            className="w-full"
+            onClick={() => inputRef.current?.click()}
+            loading={uploading}
+          >
+            <Upload className="h-4 w-4" />
+            Upload File
+          </Button>
+          <p className="mt-1 text-center text-xs text-gray-400">
+            PDF, images, Word, Excel &mdash; max 10MB
+          </p>
+        </div>
+
+        {error && (
+          <p className="text-xs text-red-600">{error}</p>
+        )}
+
+        {/* File list */}
+        {loading ? (
+          <div className="flex justify-center py-3">
+            <Spinner size="sm" />
+          </div>
+        ) : files.length === 0 ? (
+          <p className="text-sm text-gray-400">No files attached yet.</p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {files.map((f) => (
+              <li key={f.id} className="flex items-center gap-2 py-2">
+                <File className="h-4 w-4 shrink-0 text-gray-400" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-gray-700">{f.fileName}</p>
+                  <p className="text-xs text-gray-400">
+                    {formatFileSize(f.fileSize)} &middot; {f.uploader.name}
+                  </p>
+                </div>
+                <a
+                  href={`/api/uploads/${f.id}`}
+                  download
+                  className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  title="Download"
+                >
+                  <Download className="h-4 w-4" />
+                </a>
+                <button
+                  onClick={() => handleDelete(f.id)}
+                  className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500"
+                  title="Delete"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Card>
   );
 }
