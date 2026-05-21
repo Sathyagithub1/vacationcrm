@@ -198,7 +198,7 @@ function BroadcastForm({
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" variant="secondary" onClick={onCancel}>
           Cancel
         </Button>
         <Button type="submit" disabled={saving}>
@@ -510,7 +510,7 @@ export default function BroadcastsPage() {
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             disabled={page <= 1}
             onClick={() => setPage((p) => p - 1)}
@@ -521,7 +521,7 @@ export default function BroadcastsPage() {
             Page {page} of {totalPages}
           </span>
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             disabled={page >= totalPages}
             onClick={() => setPage((p) => p + 1)}

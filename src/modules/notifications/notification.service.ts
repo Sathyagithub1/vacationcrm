@@ -38,8 +38,8 @@ export async function createNotification(data: CreateNotificationData) {
       type: data.type,
       title: data.title,
       body: data.body,
-      data: data.data || {},
-      channelsSent: [],
+      data: (data.data || {}) as any,
+      channelsSent: [] as any,
     },
   });
 

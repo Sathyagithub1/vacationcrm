@@ -25,7 +25,7 @@ export async function createBroadcast(data: CreateBroadcastData) {
       content: data.content,
       channel: data.channel,
       targetType: data.targetType,
-      targetFilter: data.targetFilter || {},
+      targetFilter: (data.targetFilter || {}) as any,
       status: "DRAFT",
       scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
     },
