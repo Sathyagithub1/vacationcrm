@@ -4,10 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import { Plus, Pencil, Check } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { WidgetGrid, type WidgetData } from "@/components/dashboard/widget-grid";
 import { WidgetBuilder, type WidgetConfig } from "@/components/dashboard/widget-builder";
 
 export default function DashboardPage() {
+  const { toast } = useToast();
   const [widgets, setWidgets] = useState<WidgetData[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [editing, setEditing] = useState(false);
@@ -66,9 +68,11 @@ export default function DashboardPage() {
       if (res.ok) {
         const json = await res.json();
         setWidgets((prev) => [...prev, json.widget]);
+      } else {
+        toast("error", "Failed to add widget");
       }
     } catch {
-      // silently fail
+      toast("error", "Failed to add widget");
     }
   };
 
@@ -77,9 +81,11 @@ export default function DashboardPage() {
       const res = await fetch(`/api/widgets/${id}`, { method: "DELETE" });
       if (res.ok) {
         setWidgets((prev) => prev.filter((w) => w.id !== id));
+      } else {
+        toast("error", "Failed to remove widget");
       }
     } catch {
-      // silently fail
+      toast("error", "Failed to remove widget");
     }
   };
 
@@ -95,7 +101,7 @@ export default function DashboardPage() {
           body: JSON.stringify({ position: { order: i } }),
         });
       } catch {
-        // silently fail
+        toast("error", "Failed to save widget order");
       }
     }
   };

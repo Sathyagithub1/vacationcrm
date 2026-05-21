@@ -37,6 +37,15 @@ export async function GET() {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
+    // Mask sensitive credentials before returning
+    const emailConfig = tenant.emailTemplateConfig as Record<string, unknown> | null;
+    if (emailConfig) {
+      if (emailConfig.smtpPass) emailConfig.smtpPass = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+      if (emailConfig.smsApiKey) emailConfig.smsApiKey = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+      if (emailConfig.whatsappApiKey) emailConfig.whatsappApiKey = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+      (tenant as Record<string, unknown>).emailTemplateConfig = emailConfig;
+    }
+
     return NextResponse.json({ tenant });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {

@@ -9,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const { db } = await requireAuth();
+    const { user, db } = await requireAuth();
 
     const customer = await db.customer.findFirst({
       where: { id },
@@ -20,8 +20,16 @@ export async function GET(
     }
 
     // Fetch linked leads (most recent first) with stage and department
+    // Apply RBAC filtering so users only see leads they have access to
+    const leadWhere: Record<string, unknown> = { customerId: id };
+    if (user.role === "AGENT") {
+      leadWhere.assignedTo = user.id;
+    } else if (user.role === "DEPT_MANAGER" && user.departmentId) {
+      leadWhere.departmentId = user.departmentId;
+    }
+
     const leads = await db.lead.findMany({
-      where: { customerId: id },
+      where: leadWhere,
       orderBy: { createdAt: "desc" },
       include: {
         stage: { select: { id: true, name: true, color: true } },

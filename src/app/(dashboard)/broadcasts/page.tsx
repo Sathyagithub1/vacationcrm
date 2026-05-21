@@ -82,9 +82,35 @@ function BroadcastForm({
   const [content, setContent] = React.useState(editBroadcast?.content || "");
   const [channel, setChannel] = React.useState(editBroadcast?.channel || "EMAIL");
   const [targetType, setTargetType] = React.useState(editBroadcast?.targetType || "ALL_CUSTOMERS");
+  const [targetFilterValue, setTargetFilterValue] = React.useState<string>(
+    (editBroadcast?.targetFilter as Record<string, string>)?.departmentId ||
+    (editBroadcast?.targetFilter as Record<string, string>)?.stageId ||
+    ""
+  );
   const [scheduledAt, setScheduledAt] = React.useState(
     editBroadcast?.scheduledAt ? editBroadcast.scheduledAt.slice(0, 16) : ""
   );
+  const [departments, setDepartments] = React.useState<{ id: string; name: string }[]>([]);
+  const [stages, setStages] = React.useState<{ id: string; name: string }[]>([]);
+
+  // Fetch departments and stages for target filter dropdowns
+  React.useEffect(() => {
+    async function fetchOptions() {
+      try {
+        const [deptRes, stageRes] = await Promise.all([
+          fetch("/api/departments").then((r) => r.ok ? r.json() : null),
+          fetch("/api/pipeline-stages").then((r) => r.ok ? r.json() : null),
+        ]);
+        if (deptRes?.departments) setDepartments(deptRes.departments);
+        if (stageRes?.stages) setStages(stageRes.stages);
+      } catch {
+        // silent
+      }
+    }
+    if (targetType === "DEPARTMENT" || targetType === "STAGE") {
+      fetchOptions();
+    }
+  }, [targetType]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -95,12 +121,20 @@ function BroadcastForm({
 
     setSaving(true);
     try {
+      // Build targetFilter based on targetType
+      let targetFilter: Record<string, string> | null = null;
+      if (targetType === "DEPARTMENT" && targetFilterValue) {
+        targetFilter = { departmentId: targetFilterValue };
+      } else if (targetType === "STAGE" && targetFilterValue) {
+        targetFilter = { stageId: targetFilterValue };
+      }
+
       const payload = {
         title: title.trim(),
         content: content.trim(),
         channel,
         targetType,
-        targetFilter: null,
+        targetFilter,
         scheduledAt: scheduledAt || null,
       };
 
@@ -184,6 +218,41 @@ function BroadcastForm({
           </select>
         </div>
       </div>
+
+      {/* Target filter dropdown for DEPARTMENT or STAGE */}
+      {targetType === "DEPARTMENT" && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Select Department</label>
+          <select
+            value={targetFilterValue}
+            onChange={(e) => setTargetFilterValue(e.target.value)}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-1 focus:ring-primary-400"
+            required
+          >
+            <option value="">-- Select department --</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {targetType === "STAGE" && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Select Pipeline Stage</label>
+          <select
+            value={targetFilterValue}
+            onChange={(e) => setTargetFilterValue(e.target.value)}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-1 focus:ring-primary-400"
+            required
+          >
+            <option value="">-- Select stage --</option>
+            {stages.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -15,21 +15,52 @@ import {
   Settings,
   X,
 } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useTenant } from "@/hooks/use-tenant";
+import { hasPermission } from "@/modules/auth/rbac";
 import { SidebarNavItem } from "./sidebar-nav-item";
+import type { Permission } from "@/types";
+import type { Role } from "@prisma/client";
 
 interface SidebarProps {
   open: boolean;
   onClose: () => void;
 }
 
-const bottomNavItems = [
-  { icon: UserCog, label: "Users", href: "/users" },
-  { icon: Settings, label: "Settings", href: "/settings" },
+const bottomNavItems: Array<{ icon: typeof UserCog; label: string; href: string; permission?: Permission; permissionPrefix?: string }> = [
+  { icon: UserCog, label: "Users", href: "/users", permission: "users:manage" },
+  { icon: Settings, label: "Settings", href: "/settings", permissionPrefix: "settings:" },
 ];
 
+// All settings permissions for prefix matching
+const SETTINGS_PERMISSIONS: Permission[] = [
+  "settings:general",
+  "settings:branding",
+  "settings:pipeline",
+  "settings:notifications",
+  "settings:integrations",
+  "settings:billing",
+];
+
+function canViewItem(
+  role: Role,
+  item: { permission?: Permission; permissionPrefix?: string }
+): boolean {
+  if (item.permission) {
+    return hasPermission(role, item.permission);
+  }
+  if (item.permissionPrefix) {
+    return SETTINGS_PERMISSIONS.some(
+      (p) => p.startsWith(item.permissionPrefix!) && hasPermission(role, p)
+    );
+  }
+  return true; // no restriction
+}
+
 export function Sidebar({ open, onClose }: SidebarProps) {
+  const { data: session } = useSession();
   const { tenant } = useTenant();
+  const userRole = (session?.user?.role || "VIEWER") as Role;
 
   const [leadCount, setLeadCount] = useState(0);
   const [convoCount, setConvoCount] = useState(0);
@@ -55,17 +86,27 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const mainNavItems = [
-    { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-    { icon: Users, label: "Leads", href: "/leads", badge: leadCount, badgeColor: "orange" as const },
-    { icon: MessageSquare, label: "Conversations", href: "/conversations", badge: convoCount, badgeColor: "green" as const },
-    { icon: Bell, label: "Follow-ups", href: "/follow-ups", badge: followUpCount, badgeColor: "yellow" as const },
-    { icon: Phone, label: "Callbacks", href: "/callbacks" },
-    { icon: Building2, label: "Departments", href: "/departments" },
-    { icon: UserCircle, label: "Customers", href: "/customers" },
-    { icon: Megaphone, label: "Broadcasts", href: "/broadcasts" },
-    { icon: BarChart3, label: "Reports", href: "/reports" },
+  const mainNavItems: Array<{
+    icon: typeof LayoutDashboard;
+    label: string;
+    href: string;
+    badge?: number;
+    badgeColor?: "orange" | "green" | "yellow";
+    permission?: Permission;
+  }> = [
+    { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard", permission: "dashboard:view" },
+    { icon: Users, label: "Leads", href: "/leads", badge: leadCount, badgeColor: "orange", permission: "leads:view" },
+    { icon: MessageSquare, label: "Conversations", href: "/conversations", badge: convoCount, badgeColor: "green", permission: "conversations:view" },
+    { icon: Bell, label: "Follow-ups", href: "/follow-ups", badge: followUpCount, badgeColor: "yellow", permission: "follow-ups:view" },
+    { icon: Phone, label: "Callbacks", href: "/callbacks", permission: "callbacks:view" },
+    { icon: Building2, label: "Departments", href: "/departments", permission: "departments:manage" },
+    { icon: UserCircle, label: "Customers", href: "/customers", permission: "customers:view" },
+    { icon: Megaphone, label: "Broadcasts", href: "/broadcasts", permission: "broadcasts:send" },
+    { icon: BarChart3, label: "Reports", href: "/reports", permission: "reports:view" },
   ];
+
+  const visibleMainNav = mainNavItems.filter((item) => canViewItem(userRole, item));
+  const visibleBottomNav = bottomNavItems.filter((item) => canViewItem(userRole, item));
 
   return (
     <>
@@ -112,7 +153,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Main nav */}
         <nav className="flex-1 overflow-y-auto px-2 py-2">
           <div className="space-y-0.5">
-            {mainNavItems.map((item) => (
+            {visibleMainNav.map((item) => (
               <SidebarNavItem
                 key={item.href}
                 icon={item.icon}
@@ -125,11 +166,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </div>
 
           {/* Divider */}
-          <div className="my-3 border-t border-gray-200" />
+          {visibleBottomNav.length > 0 && (
+            <div className="my-3 border-t border-gray-200" />
+          )}
 
           {/* Bottom nav items */}
           <div className="space-y-0.5">
-            {bottomNavItems.map((item) => (
+            {visibleBottomNav.map((item) => (
               <SidebarNavItem
                 key={item.href}
                 icon={item.icon}

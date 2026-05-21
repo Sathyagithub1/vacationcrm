@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, unauthorized } from "@/modules/auth/tenant.middleware";
+import { requireAuth, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { processUpload, isUploadError } from "@/lib/uploads";
 import { logAudit } from "@/modules/audit/audit.service";
 
@@ -21,6 +21,10 @@ export async function POST(request: NextRequest) {
     if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
+
+    // RBAC ownership check
+    if (user.role === "AGENT" && lead.assignedTo !== user.id) return forbidden();
+    if (user.role === "DEPT_MANAGER" && user.departmentId && lead.departmentId !== user.departmentId) return forbidden();
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -80,6 +84,14 @@ export async function GET(request: NextRequest) {
     if (!leadId) {
       return NextResponse.json({ error: "leadId is required" }, { status: 400 });
     }
+
+    // RBAC ownership check
+    const lead = await db.lead.findFirst({ where: { id: leadId } });
+    if (!lead) {
+      return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    }
+    if (user.role === "AGENT" && lead.assignedTo !== user.id) return forbidden();
+    if (user.role === "DEPT_MANAGER" && user.departmentId && lead.departmentId !== user.departmentId) return forbidden();
 
     const files = await db.fileUpload.findMany({
       where: { leadId },

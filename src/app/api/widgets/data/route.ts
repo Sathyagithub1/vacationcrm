@@ -30,6 +30,14 @@ export async function GET(request: NextRequest) {
     if (departmentId) baseWhere.departmentId = departmentId;
     if (hasDateFilter) baseWhere.createdAt = dateFilter;
 
+    // RBAC scoping
+    if (user.role === "AGENT") {
+      baseWhere.assignedTo = user.id;
+    } else if (user.role === "DEPT_MANAGER" && user.departmentId) {
+      baseWhere.departmentId = user.departmentId;
+    }
+    // COMPANY_ADMIN and SUPER_ADMIN see everything
+
     const data = await fetchWidgetData(dataSource, tenantId, baseWhere, dateFilter, hasDateFilter, departmentId);
 
     return NextResponse.json({ data });
@@ -155,29 +163,34 @@ async function fetchWidgetData(
     }
 
     case "follow_ups_due": {
-      const count = await prisma.followUp.count({
-        where: {
-          tenantId,
-          status: "PENDING",
-          scheduledAt: { lte: new Date() },
-        },
-      });
+      const fuDueWhere: Record<string, unknown> = {
+        tenantId,
+        status: "PENDING",
+        scheduledAt: { lte: new Date() },
+      };
+      if (baseWhere.assignedTo) fuDueWhere.assignedTo = baseWhere.assignedTo;
+      if (baseWhere.departmentId) fuDueWhere.departmentId = baseWhere.departmentId;
+      const count = await prisma.followUp.count({ where: fuDueWhere });
       return { value: count, label: "Follow-ups Due" };
     }
 
     case "follow_ups_by_type": {
+      const fuTypeWhere: Record<string, unknown> = { tenantId };
+      if (baseWhere.assignedTo) fuTypeWhere.assignedTo = baseWhere.assignedTo;
+      if (baseWhere.departmentId) fuTypeWhere.departmentId = baseWhere.departmentId;
       const counts = await prisma.followUp.groupBy({
         by: ["type"],
-        where: { tenantId },
+        where: fuTypeWhere,
         _count: { id: true },
       });
       return counts.map((c) => ({ name: c.type, value: c._count.id }));
     }
 
     case "callbacks_scheduled": {
-      const count = await prisma.callback.count({
-        where: { tenantId, status: "SCHEDULED" },
-      });
+      const cbWhere: Record<string, unknown> = { tenantId, status: "SCHEDULED" };
+      if (baseWhere.assignedTo) cbWhere.assignedTo = baseWhere.assignedTo;
+      if (baseWhere.departmentId) cbWhere.departmentId = baseWhere.departmentId;
+      const count = await prisma.callback.count({ where: cbWhere });
       return { value: count, label: "Scheduled Callbacks" };
     }
 

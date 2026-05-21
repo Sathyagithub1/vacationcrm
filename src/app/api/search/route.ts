@@ -9,7 +9,7 @@ import { globalSearch } from "@/lib/search";
  */
 export async function GET(request: NextRequest) {
   try {
-    const { db } = await requireAuth();
+    const { user, db } = await requireAuth();
     const q = request.nextUrl.searchParams.get("q")?.trim() || "";
 
     if (!q || q.length < 2) {
@@ -20,7 +20,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const results = await globalSearch(db, q);
+    const results = await globalSearch(db, q, {
+      role: user.role,
+      userId: user.id,
+      departmentId: user.departmentId,
+    });
     return NextResponse.json(results);
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {

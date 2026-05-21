@@ -42,19 +42,18 @@ export async function POST(
     const { user, db } = await requireAuth();
 
     const body = await request.json();
-    const { content, senderType, messageType, fileUrl } = body;
+    const { content, messageType, fileUrl } = body;
 
     if (!content || typeof content !== "string" || !content.trim()) {
       return NextResponse.json({ error: "Message content is required" }, { status: 400 });
     }
 
-    // Default senderType to AGENT when sent by logged-in user
-    const effectiveSenderType = senderType || "AGENT";
-
+    // Phase 1: only agents send messages via this endpoint.
+    // Force senderType to AGENT and senderId to the authenticated user.
     const message = await sendMessage(db, {
       conversationId: id,
-      senderType: effectiveSenderType,
-      senderId: effectiveSenderType === "AGENT" ? user.id : null,
+      senderType: "AGENT",
+      senderId: user.id,
       content: content.trim(),
       messageType: messageType || "TEXT",
       fileUrl: fileUrl || null,

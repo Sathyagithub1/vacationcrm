@@ -36,15 +36,11 @@ export function PipelineBoard({ stages, leads, onStageChange, onLeadClick }: Pip
     const lead = leads.find((l) => l.id === leadId);
     if (!lead) return;
 
-    // Find current stage id — we need to match against stages
-    const currentLead = leads.find((l) => l.id === leadId);
-    if (!currentLead) return;
+    // Get the lead's current stageId
+    const currentStageId = (lead as unknown as { stageId?: string }).stageId;
 
-    // Only trigger if dropped on a different stage
-    // The lead's stageId isn't directly on the lead card data,
-    // but the lead is grouped by stage in the columns.
-    // The over.id is the stageId of the column.
-    if (newStageId !== over.id) return;
+    // Skip API call if dropped on the same stage
+    if (currentStageId === newStageId) return;
 
     onStageChange(leadId, newStageId);
   }

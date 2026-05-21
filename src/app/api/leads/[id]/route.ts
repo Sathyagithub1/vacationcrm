@@ -95,6 +95,10 @@ export async function PUT(
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
 
+    // Ownership check
+    if (user.role === "AGENT" && existing.assignedTo !== user.id) return forbidden();
+    if (user.role === "DEPT_MANAGER" && user.departmentId && existing.departmentId !== user.departmentId) return forbidden();
+
     const body = await request.json();
     const lead = await updateLead(db, id, body, user.id);
 
@@ -130,6 +134,14 @@ export async function DELETE(
   try {
     const { id } = await params;
     const { user, db } = await requirePermission("leads:delete");
+
+    // Ownership check before delete
+    const existing = await db.lead.findFirst({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    }
+    if (user.role === "AGENT" && existing.assignedTo !== user.id) return forbidden();
+    if (user.role === "DEPT_MANAGER" && user.departmentId && existing.departmentId !== user.departmentId) return forbidden();
 
     const lead = await deleteLead(db, id);
 

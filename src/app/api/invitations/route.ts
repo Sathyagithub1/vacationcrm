@@ -126,10 +126,9 @@ export async function POST(request: Request) {
       newValue: { email: normalizedEmail, role, departmentId },
     });
 
-    return NextResponse.json({
-      invitation,
-      inviteUrl, // Return for dev/testing, remove in production
-    }, { status: 201 });
+    // Do not return token/URL in the response — it is sent via email only
+    const { token: _token, ...safeInvitation } = invitation;
+    return NextResponse.json({ invitation: safeInvitation }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Unauthorized") return unauthorized();
