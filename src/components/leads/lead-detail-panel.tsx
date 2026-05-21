@@ -63,6 +63,8 @@ interface LeadDetailPanelProps {
   onAssignAgent: (agentId: string) => void;
   onScheduleCallback?: () => void;
   onCreateFollowUp?: () => void;
+  onEscalate?: () => void;
+  onStartConversation?: () => void;
   changingStage?: boolean;
   assigningAgent?: boolean;
 }
@@ -75,6 +77,8 @@ export function LeadDetailPanel({
   onAssignAgent,
   onScheduleCallback,
   onCreateFollowUp,
+  onEscalate,
+  onStartConversation,
   changingStage,
   assigningAgent,
 }: LeadDetailPanelProps) {
@@ -215,6 +219,24 @@ export function LeadDetailPanel({
               onClick={onCreateFollowUp}
             >
               Create Follow-up
+            </Button>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="flex-1"
+              onClick={onStartConversation}
+            >
+              Start Conversation
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
+              className="flex-1"
+              onClick={onEscalate}
+            >
+              Escalate
             </Button>
           </div>
         </div>
