@@ -8,6 +8,9 @@ import {
   GripVertical,
   Lock,
   Save,
+  Zap,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,11 +39,429 @@ interface Department {
   name: string;
 }
 
+interface FollowUpRule {
+  id: string;
+  triggerType: string;
+  triggerValue: string | null;
+  followUpType: string;
+  delayHours: number;
+  messageTemplate: string | null;
+  isActive: boolean;
+  departmentId: string | null;
+  department: { id: string; name: string } | null;
+}
+
+const TRIGGER_TYPES = [
+  { value: "STAGE_CHANGE", label: "Stage Change" },
+  { value: "LEAD_CREATED", label: "Lead Created" },
+  { value: "LEAD_INACTIVE", label: "Lead Inactive" },
+];
+
+const FOLLOW_UP_TYPES = [
+  { value: "REMINDER", label: "Reminder" },
+  { value: "QUOTATION", label: "Quotation" },
+  { value: "DOCUMENT", label: "Document" },
+  { value: "PAYMENT", label: "Payment" },
+  { value: "RE_ENGAGE", label: "Re-engage" },
+];
+
 const emptyStageForm = {
   name: "",
   color: "#6B7280",
   departmentId: "",
 };
+
+const emptyRuleForm = {
+  triggerType: "STAGE_CHANGE",
+  triggerValue: "",
+  followUpType: "REMINDER",
+  delayHours: "24",
+  messageTemplate: "",
+  departmentId: "",
+};
+
+/* ─── Follow-Up Rules Section ─── */
+function FollowUpRulesSection({
+  stages,
+  departments,
+}: {
+  stages: PipelineStage[];
+  departments: Department[];
+}) {
+  const { toast } = useToast();
+  const [rules, setRules] = React.useState<FollowUpRule[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [modalOpen, setModalOpen] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [form, setForm] = React.useState(emptyRuleForm);
+  const [saving, setSaving] = React.useState(false);
+  const [togglingId, setTogglingId] = React.useState<string | null>(null);
+
+  const fetchRules = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/follow-up-rules");
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      setRules(data.rules);
+    } catch {
+      toast("error", "Failed to load follow-up rules");
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  React.useEffect(() => {
+    fetchRules();
+  }, [fetchRules]);
+
+  function openCreate() {
+    setEditingId(null);
+    setForm(emptyRuleForm);
+    setModalOpen(true);
+  }
+
+  function openEdit(rule: FollowUpRule) {
+    setEditingId(rule.id);
+    setForm({
+      triggerType: rule.triggerType,
+      triggerValue: rule.triggerValue || "",
+      followUpType: rule.followUpType,
+      delayHours: String(rule.delayHours),
+      messageTemplate: rule.messageTemplate || "",
+      departmentId: rule.departmentId || "",
+    });
+    setModalOpen(true);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+
+    const delayHours = Number(form.delayHours);
+    if (isNaN(delayHours) || delayHours < 0) {
+      toast("warning", "Delay hours must be a non-negative number");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        triggerType: form.triggerType,
+        triggerValue: form.triggerValue || null,
+        followUpType: form.followUpType,
+        delayHours,
+        messageTemplate: form.messageTemplate || null,
+        departmentId: form.departmentId || null,
+      };
+
+      if (editingId) {
+        payload.id = editingId;
+        const res = await fetch("/api/follow-up-rules", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to update");
+        }
+        toast("success", "Rule updated");
+      } else {
+        const res = await fetch("/api/follow-up-rules", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to create");
+        }
+        toast("success", "Rule created");
+      }
+
+      setModalOpen(false);
+      fetchRules();
+    } catch (err) {
+      toast("error", err instanceof Error ? err.message : "Failed to save rule");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(rule: FollowUpRule) {
+    const label = TRIGGER_TYPES.find((t) => t.value === rule.triggerType)?.label || rule.triggerType;
+    if (!confirm(`Delete this "${label}" rule? This cannot be undone.`)) return;
+
+    try {
+      const res = await fetch("/api/follow-up-rules", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: rule.id }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to delete");
+      }
+      toast("success", "Rule deleted");
+      fetchRules();
+    } catch (err) {
+      toast("error", err instanceof Error ? err.message : "Failed to delete rule");
+    }
+  }
+
+  async function handleToggleActive(rule: FollowUpRule) {
+    setTogglingId(rule.id);
+    try {
+      const res = await fetch("/api/follow-up-rules", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: rule.id, isActive: !rule.isActive }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to toggle");
+      }
+      setRules((prev) =>
+        prev.map((r) => (r.id === rule.id ? { ...r, isActive: !r.isActive } : r))
+      );
+    } catch (err) {
+      toast("error", err instanceof Error ? err.message : "Failed to toggle rule");
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  function triggerLabel(type: string) {
+    return TRIGGER_TYPES.find((t) => t.value === type)?.label || type;
+  }
+
+  function followUpLabel(type: string) {
+    return FOLLOW_UP_TYPES.find((t) => t.value === type)?.label || type;
+  }
+
+  function triggerValueLabel(rule: FollowUpRule) {
+    if (rule.triggerType === "STAGE_CHANGE" && rule.triggerValue) {
+      const stage = stages.find((s) => s.slug === rule.triggerValue || s.name === rule.triggerValue);
+      return stage ? stage.name : rule.triggerValue;
+    }
+    if (rule.triggerType === "LEAD_INACTIVE" && rule.triggerValue) {
+      return `${rule.triggerValue} days`;
+    }
+    return rule.triggerValue || "--";
+  }
+
+  // Build trigger value options based on selected trigger type
+  const triggerValueOptions = React.useMemo(() => {
+    if (form.triggerType === "STAGE_CHANGE") {
+      return stages.map((s) => ({ value: s.slug || s.name, label: s.name }));
+    }
+    return [];
+  }, [form.triggerType, stages]);
+
+  const showTriggerValueSelect = form.triggerType === "STAGE_CHANGE";
+  const showTriggerValueInput = form.triggerType === "LEAD_INACTIVE";
+
+  if (loading) {
+    return (
+      <div className="flex h-32 items-center justify-center">
+        <Spinner size="md" />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">
+            <Zap className="mr-1.5 inline-block h-4 w-4 text-amber-500" />
+            Follow-Up Rules
+          </h2>
+          <p className="text-xs text-gray-500">
+            Automated follow-up rules triggered by lead events.
+          </p>
+        </div>
+        <Button onClick={openCreate} size="sm">
+          <Plus className="h-4 w-4" />
+          Add Rule
+        </Button>
+      </div>
+
+      <div className="rounded-lg border border-gray-200 bg-white">
+        {rules.length === 0 ? (
+          <div className="py-12 text-center text-gray-500">
+            No follow-up rules configured. Add your first automation rule.
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {rules.map((rule) => (
+              <div
+                key={rule.id}
+                className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-gray-50"
+              >
+                {/* Active toggle */}
+                <button
+                  onClick={() => handleToggleActive(rule)}
+                  disabled={togglingId === rule.id}
+                  className="flex-shrink-0 text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                  title={rule.isActive ? "Active (click to disable)" : "Inactive (click to enable)"}
+                >
+                  {rule.isActive ? (
+                    <ToggleRight className="h-5 w-5 text-green-500" />
+                  ) : (
+                    <ToggleLeft className="h-5 w-5 text-gray-300" />
+                  )}
+                </button>
+
+                {/* Main info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant={rule.isActive ? "success" : "default"} size="sm">
+                      {triggerLabel(rule.triggerType)}
+                    </Badge>
+                    {rule.triggerValue && (
+                      <span className="text-xs text-gray-500">
+                        {triggerValueLabel(rule)}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">-&gt;</span>
+                    <Badge variant="info" size="sm">
+                      {followUpLabel(rule.followUpType)}
+                    </Badge>
+                    <span className="text-xs text-gray-500">
+                      after {rule.delayHours}h
+                    </span>
+                  </div>
+                  {(rule.messageTemplate || rule.department) && (
+                    <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-400">
+                      {rule.department && (
+                        <span>{rule.department.name}</span>
+                      )}
+                      {rule.messageTemplate && (
+                        <span className="truncate max-w-xs">
+                          {rule.messageTemplate}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => openEdit(rule)}
+                    className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                    title="Edit"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(rule)}
+                    className="rounded-md p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600"
+                    title="Delete"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Create / Edit Rule Modal */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingId ? "Edit Follow-Up Rule" : "Add Follow-Up Rule"}
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Select
+            label="Trigger Type"
+            value={form.triggerType}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, triggerType: e.target.value, triggerValue: "" }))
+            }
+            options={TRIGGER_TYPES}
+          />
+
+          {showTriggerValueSelect && (
+            <Select
+              label="Trigger Stage"
+              value={form.triggerValue}
+              onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))}
+              placeholder="Select a stage"
+              options={[
+                { value: "", label: "Any stage" },
+                ...triggerValueOptions,
+              ]}
+            />
+          )}
+
+          {showTriggerValueInput && (
+            <Input
+              label="Inactive Days"
+              type="number"
+              min={1}
+              value={form.triggerValue}
+              onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))}
+              placeholder="e.g. 7"
+            />
+          )}
+
+          <Select
+            label="Follow-Up Type"
+            value={form.followUpType}
+            onChange={(e) => setForm((f) => ({ ...f, followUpType: e.target.value }))}
+            options={FOLLOW_UP_TYPES}
+          />
+
+          <Input
+            label="Delay (hours)"
+            type="number"
+            min={0}
+            value={form.delayHours}
+            onChange={(e) => setForm((f) => ({ ...f, delayHours: e.target.value }))}
+            placeholder="e.g. 24"
+            required
+          />
+
+          <div className="w-full">
+            <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              Message Template (optional)
+            </label>
+            <textarea
+              value={form.messageTemplate}
+              onChange={(e) => setForm((f) => ({ ...f, messageTemplate: e.target.value }))}
+              placeholder="Hi {{name}}, just following up..."
+              rows={3}
+              className="flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
+            />
+          </div>
+
+          <Select
+            label="Department (optional)"
+            value={form.departmentId}
+            onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value }))}
+            placeholder="All departments"
+            options={[
+              { value: "", label: "All departments" },
+              ...departments.map((d) => ({ value: d.id, label: d.name })),
+            ]}
+          />
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              {editingId ? "Update" : "Create"} Rule
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </>
+  );
+}
 
 export default function PipelineSettingsPage() {
   const { toast } = useToast();
@@ -385,6 +806,11 @@ export default function PipelineSettingsPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Follow-Up Rules Section */}
+      <div className="mt-10 border-t border-gray-200 pt-8">
+        <FollowUpRulesSection stages={stages} departments={departments} />
+      </div>
     </div>
   );
 }
