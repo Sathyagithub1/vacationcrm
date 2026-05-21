@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requirePermission, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { logAudit } from "@/modules/audit/audit.service";
 import { generateToken } from "@/lib/utils";
+import { sendEmail } from "@/modules/notifications/channels/email.channel";
 
 const VALID_ROLES = ["COMPANY_ADMIN", "DEPT_MANAGER", "AGENT", "VIEWER"];
 
@@ -86,9 +87,27 @@ export async function POST(request: Request) {
       },
     });
 
-    // Log the invitation URL to console (Task 17 will wire actual email sending)
-    const inviteUrl = `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/auth/accept-invite?token=${token}`;
-    console.log(`[INVITATION] Email: ${normalizedEmail}, URL: ${inviteUrl}`);
+    const inviteUrl = `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/accept-invite?token=${token}`;
+
+    await sendEmail({
+      to: normalizedEmail,
+      subject: "You've been invited to Holiday Delight CRM",
+      body: `You have been invited to join Holiday Delight CRM as ${role.toLowerCase()}.\n\nClick the link below to accept your invitation and create your account:\n\n${inviteUrl}\n\nThis invitation expires in 7 days.`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+          <h2 style="color: #1a1a1a;">You're invited!</h2>
+          <p style="color: #555;">You have been invited to join <strong>Holiday Delight CRM</strong> as <strong>${role.toLowerCase()}</strong>.</p>
+          <p style="margin: 24px 0;">
+            <a href="${inviteUrl}" style="display: inline-block; background: #f97316; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">
+              Accept Invitation
+            </a>
+          </p>
+          <p style="color: #888; font-size: 13px;">This invitation expires in 7 days.</p>
+        </div>
+      `,
+    });
+
+    console.log(`[INVITATION] Email sent to ${normalizedEmail}, URL: ${inviteUrl}`);
 
     await logAudit({
       tenantId: user.tenantId,

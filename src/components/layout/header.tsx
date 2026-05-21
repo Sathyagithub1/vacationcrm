@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Bell, Menu, LogOut, Settings, User, Search, X, Users, MessageSquare, Briefcase } from "lucide-react";
+import { Bell, Menu, LogOut, Settings, User, Search, X, Users, MessageSquare, Briefcase, Check } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/avatar";
 import { Dropdown } from "@/components/ui/dropdown";
+import { cn } from "@/lib/utils";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -15,6 +16,15 @@ interface SearchResultGroup {
   customers: Array<{ id: string; name: string; mobile: string; email: string | null }>;
   leads: Array<{ id: string; customer: { name: string }; department: { name: string }; stage: { name: string } }>;
   conversations: Array<{ id: string; status: string; lead: { customer: { name: string } } }>;
+}
+
+interface NotificationItem {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
@@ -31,6 +41,90 @@ export function Header({ onMenuClick }: HeaderProps) {
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  // Notification state
+  const [notifCount, setNotifCount] = React.useState(0);
+  const [notifOpen, setNotifOpen] = React.useState(false);
+  const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
+  const [loadingNotifs, setLoadingNotifs] = React.useState(false);
+  const notifRef = React.useRef<HTMLDivElement>(null);
+
+  // Fetch unread count on mount and every 30 seconds
+  React.useEffect(() => {
+    async function fetchCount() {
+      try {
+        const res = await fetch("/api/notifications?countOnly=true");
+        if (res.ok) {
+          const data = await res.json();
+          setNotifCount(data.unreadCount || 0);
+        }
+      } catch {
+        // silent
+      }
+    }
+    fetchCount();
+    const interval = setInterval(fetchCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch latest notifications when dropdown opens
+  async function openNotifications() {
+    setNotifOpen((prev) => !prev);
+    if (!notifOpen) {
+      setLoadingNotifs(true);
+      try {
+        const res = await fetch("/api/notifications?limit=5");
+        if (res.ok) {
+          const data = await res.json();
+          setNotifications(data.notifications || []);
+          setNotifCount(data.unreadCount || 0);
+        }
+      } catch {
+        // silent
+      } finally {
+        setLoadingNotifs(false);
+      }
+    }
+  }
+
+  async function handleMarkAllRead() {
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark-all-read" }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNotifCount(data.unreadCount || 0);
+        setNotifications((prev) => prev.map((n) => ({ ...n, readAt: new Date().toISOString() })));
+      }
+    } catch {
+      // silent
+    }
+  }
+
+  // Close notification dropdown on click outside
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function formatTimeAgo(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  }
 
   // Debounced search
   React.useEffect(() => {
@@ -111,7 +205,9 @@ export function Header({ onMenuClick }: HeaderProps) {
     {
       label: "Profile",
       icon: <User className="h-4 w-4" />,
-      onClick: () => {},
+      onClick: () => {
+        router.push("/settings/general");
+      },
     },
     {
       label: "Settings",
@@ -237,7 +333,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                     {results.leads.map((l) => (
                       <button
                         key={l.id}
-                        onClick={() => handleResultClick(`/leads`)}
+                        onClick={() => handleResultClick(`/leads/${l.id}`)}
                         className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-gray-50"
                       >
                         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-green-50 text-green-600">
@@ -293,10 +389,65 @@ export function Header({ onMenuClick }: HeaderProps) {
       {/* Right side */}
       <div className="flex items-center gap-3">
         {/* Notification bell */}
-        <button className="relative rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700">
-          <Bell className="h-5 w-5" />
-          {/* Badge — hardcoded 0 for now, Task 17 will wire it */}
-        </button>
+        <div className="relative" ref={notifRef}>
+          <button
+            onClick={openNotifications}
+            className="relative rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+          >
+            <Bell className="h-5 w-5" />
+            {notifCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                {notifCount > 99 ? "99+" : notifCount}
+              </span>
+            )}
+          </button>
+
+          {notifOpen && (
+            <div className="absolute right-0 top-full z-50 mt-1 w-80 rounded-lg border border-gray-200 bg-white shadow-lg">
+              <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+                <h4 className="text-sm font-semibold text-gray-900">Notifications</h4>
+                {notifCount > 0 && (
+                  <button
+                    onClick={handleMarkAllRead}
+                    className="flex items-center gap-1 text-xs text-primary-500 hover:text-primary-600"
+                  >
+                    <Check className="h-3 w-3" />
+                    Mark all read
+                  </button>
+                )}
+              </div>
+
+              <div className="max-h-72 overflow-y-auto">
+                {loadingNotifs ? (
+                  <div className="px-4 py-6 text-center text-sm text-gray-400">Loading...</div>
+                ) : notifications.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm text-gray-400">No notifications</div>
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      className={cn(
+                        "border-b border-gray-50 px-4 py-3 text-left",
+                        !n.readAt && "bg-primary-50/50"
+                      )}
+                    >
+                      <div className="flex items-start gap-2">
+                        {!n.readAt && (
+                          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary-500" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900">{n.title}</p>
+                          <p className="mt-0.5 text-xs text-gray-500 line-clamp-2">{n.body}</p>
+                          <p className="mt-1 text-[10px] text-gray-400">{formatTimeAgo(n.createdAt)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* User avatar + dropdown */}
         <Dropdown

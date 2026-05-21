@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -22,18 +23,6 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-const mainNavItems = [
-  { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-  { icon: Users, label: "Leads", href: "/leads", badge: 0, badgeColor: "orange" as const },
-  { icon: MessageSquare, label: "Conversations", href: "/conversations", badge: 0, badgeColor: "green" as const },
-  { icon: Bell, label: "Follow-ups", href: "/follow-ups", badge: 0, badgeColor: "yellow" as const },
-  { icon: Phone, label: "Callbacks", href: "/callbacks" },
-  { icon: Building2, label: "Departments", href: "/departments" },
-  { icon: UserCircle, label: "Customers", href: "/customers" },
-  { icon: Megaphone, label: "Broadcasts", href: "/broadcasts" },
-  { icon: BarChart3, label: "Reports", href: "/reports" },
-];
-
 const bottomNavItems = [
   { icon: UserCog, label: "Users", href: "/users" },
   { icon: Settings, label: "Settings", href: "/settings" },
@@ -41,6 +30,42 @@ const bottomNavItems = [
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const { tenant } = useTenant();
+
+  const [leadCount, setLeadCount] = useState(0);
+  const [convoCount, setConvoCount] = useState(0);
+  const [followUpCount, setFollowUpCount] = useState(0);
+
+  useEffect(() => {
+    async function fetchCounts() {
+      try {
+        const [leadsRes, convosRes, followUpsRes] = await Promise.all([
+          fetch("/api/leads?limit=1").then((r) => r.ok ? r.json() : null),
+          fetch("/api/conversations?status=ACTIVE&limit=1").then((r) => r.ok ? r.json() : null),
+          fetch("/api/follow-ups?status=PENDING&limit=1").then((r) => r.ok ? r.json() : null),
+        ]);
+        if (leadsRes) setLeadCount(leadsRes.total || 0);
+        if (convosRes) setConvoCount(convosRes.total || 0);
+        if (followUpsRes) setFollowUpCount(followUpsRes.total || 0);
+      } catch {
+        // silent — counts stay at 0
+      }
+    }
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const mainNavItems = [
+    { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+    { icon: Users, label: "Leads", href: "/leads", badge: leadCount, badgeColor: "orange" as const },
+    { icon: MessageSquare, label: "Conversations", href: "/conversations", badge: convoCount, badgeColor: "green" as const },
+    { icon: Bell, label: "Follow-ups", href: "/follow-ups", badge: followUpCount, badgeColor: "yellow" as const },
+    { icon: Phone, label: "Callbacks", href: "/callbacks" },
+    { icon: Building2, label: "Departments", href: "/departments" },
+    { icon: UserCircle, label: "Customers", href: "/customers" },
+    { icon: Megaphone, label: "Broadcasts", href: "/broadcasts" },
+    { icon: BarChart3, label: "Reports", href: "/reports" },
+  ];
 
   return (
     <>
