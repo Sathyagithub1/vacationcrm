@@ -7,6 +7,7 @@ import { ConversationList, type ConversationListItem } from "@/components/chat/c
 import { ChatThread } from "@/components/chat/chat-thread";
 import { CustomerInfoPanel } from "@/components/chat/customer-info-panel";
 import type { MessageData } from "@/components/chat/message-bubble";
+import { useSocket, useConversationSocket } from "@/hooks/use-socket";
 
 interface ConversationDetail {
   id: string;
@@ -42,6 +43,7 @@ interface CannedResponse {
 
 export default function ConversationsPage() {
   const { toast } = useToast();
+  const { socket, isConnected } = useSocket();
 
   // State
   const [conversations, setConversations] = React.useState<ConversationListItem[]>([]);
@@ -53,11 +55,58 @@ export default function ConversationsPage() {
   const [messages, setMessages] = React.useState<MessageData[]>([]);
   const [loadingMessages, setLoadingMessages] = React.useState(false);
   const [sending, setSending] = React.useState(false);
+  const [typingUser, setTypingUser] = React.useState<string | null>(null);
 
   const [cannedResponses, setCannedResponses] = React.useState<CannedResponse[]>([]);
 
-  // Polling interval ref
+  // Polling interval ref (fallback when WS not connected)
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const typingTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // WebSocket: real-time message handler
+  const handleNewMessage = React.useCallback(
+    (msg: Record<string, unknown>) => {
+      const newMsg: MessageData = {
+        id: (msg.id as string) || `ws-${Date.now()}`,
+        content: msg.content as string,
+        senderType: (msg.senderType as string) || "AGENT",
+        senderId: (msg.senderId as string) || null,
+        messageType: (msg.messageType as string) || "TEXT",
+        fileUrl: (msg.fileUrl as string) || null,
+        createdAt: (msg.timestamp as string) || new Date().toISOString(),
+      };
+      setMessages((prev) => {
+        // Avoid duplicates
+        if (prev.some((m) => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg];
+      });
+    },
+    []
+  );
+
+  const handleTyping = React.useCallback(
+    (data: { userId: string; name: string }) => {
+      setTypingUser(data.name);
+      // Auto-clear after 3 seconds
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
+    },
+    []
+  );
+
+  const handleTypingStop = React.useCallback(() => {
+    setTypingUser(null);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+  }, []);
+
+  // Wire up WebSocket for the selected conversation
+  const { startTyping, stopTyping } = useConversationSocket(
+    socket,
+    selectedId,
+    handleNewMessage,
+    handleTyping,
+    handleTypingStop
+  );
 
   // Fetch conversation list
   const fetchConversations = React.useCallback(async () => {
@@ -125,22 +174,31 @@ export default function ConversationsPage() {
     if (selectedId) {
       fetchDetail(selectedId);
 
-      // Poll for new messages every 5 seconds (Phase 1, no WebSocket)
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = setInterval(() => {
-        fetchMessages(selectedId);
-      }, 5000);
+      // Use polling as fallback only when WebSocket is NOT connected
+      if (!isConnected) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = setInterval(() => {
+          fetchMessages(selectedId);
+        }, 5000);
+      } else {
+        // Clear polling when WS is connected
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      }
     } else {
       setDetail(null);
       setMessages([]);
+      setTypingUser(null);
     }
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [selectedId, fetchDetail]);
+  }, [selectedId, fetchDetail, isConnected]);
 
-  // Fetch only messages (for polling)
+  // Fetch only messages (for polling fallback)
   async function fetchMessages(convId: string) {
     try {
       const res = await fetch(`/api/conversations/${convId}/messages?limit=100`);
@@ -167,7 +225,9 @@ export default function ConversationsPage() {
         const data = await res.json();
         throw new Error(data.error || "Failed to send");
       }
-      // Refresh messages
+      // Stop typing indicator
+      stopTyping();
+      // Refresh messages (WS will also deliver the message to other participants)
       await fetchMessages(selectedId);
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to send message");
@@ -233,12 +293,30 @@ export default function ConversationsPage() {
           onCloseConversation={handleCloseConversation}
           sending={sending}
         />
+        {/* Typing indicator */}
+        {typingUser && selectedId && (
+          <div className="border-t border-gray-100 px-4 py-1">
+            <span className="text-xs text-gray-400 italic">
+              {typingUser} is typing...
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Right panel: Customer info */}
       <div className="w-72 shrink-0">
         <CustomerInfoPanel conversation={detail} />
       </div>
+
+      {/* Connection status indicator */}
+      {isConnected && (
+        <div className="absolute bottom-2 right-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-600">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+            Live
+          </span>
+        </div>
+      )}
     </div>
   );
 }
