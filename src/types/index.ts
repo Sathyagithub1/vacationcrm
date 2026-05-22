@@ -33,4 +33,12 @@ export type Permission =
   | "settings:pipeline"
   | "settings:notifications"
   | "settings:integrations"
-  | "settings:billing";
+  | "settings:billing"
+  | "settings:ai"
+  | "settings:knowledge-base"
+  | "settings:channels"
+  | "settings:widget"
+  | "settings:analytics"
+  | "ai:metrics"
+  | "predictions:view"
+  | "predictions:accept";

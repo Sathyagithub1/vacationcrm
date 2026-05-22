@@ -26,6 +26,14 @@ const allPermissions: Permission[] = [
   "settings:notifications",
   "settings:integrations",
   "settings:billing",
+  "settings:ai",
+  "settings:knowledge-base",
+  "settings:channels",
+  "settings:widget",
+  "settings:analytics",
+  "ai:metrics",
+  "predictions:view",
+  "predictions:accept",
 ];
 
 const rolePermissions: Record<Role, Permission[]> = {
@@ -50,6 +58,11 @@ const rolePermissions: Record<Role, Permission[]> = {
     "broadcasts:send",
     "reports:view",
     "settings:pipeline",
+    "settings:knowledge-base",
+    "settings:widget",
+    "ai:metrics",
+    "predictions:view",
+    "predictions:accept",
   ],
 
   AGENT: [
@@ -65,6 +78,9 @@ const rolePermissions: Record<Role, Permission[]> = {
     "callbacks:create",
     "customers:view",
     "reports:view",
+    "ai:metrics",
+    "predictions:view",
+    "predictions:accept",
   ],
 
   VIEWER: [
@@ -74,6 +90,8 @@ const rolePermissions: Record<Role, Permission[]> = {
     "callbacks:view",
     "customers:view",
     "reports:view",
+    "ai:metrics",
+    "predictions:view",
   ],
 };
 
