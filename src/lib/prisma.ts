@@ -20,6 +20,10 @@ export function tenantPrisma(tenantId: string) {
           "Lead", "LeadActivity", "FollowUp", "FollowUpRule", "Callback",
           "Conversation", "Message", "Notification", "Escalation",
           "Broadcast", "CannedResponse", "AuditLog", "FileUpload", "DashboardWidget",
+          "AIProvider", "KnowledgeBase", "AIConversation", "AIToolCall",
+          "ChannelConfig", "CustomerChannel", "MessageDelivery", "WebhookLog",
+          "WidgetConfig", "WidgetVisitor",
+          "LeadScore", "Prediction", "ScoringWeight", "ConversionStat",
         ];
 
         if (!model || !modelsWithTenant.includes(model)) return query(args);

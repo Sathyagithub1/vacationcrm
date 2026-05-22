@@ -69,6 +69,13 @@ enum CallbackStatus {
 
 enum ConversationChannel {
   MANUAL
+  WHATSAPP
+  FACEBOOK
+  INSTAGRAM
+  EMAIL
+  SMS
+  TELEGRAM
+  WEBSITE
 }
 
 enum ConversationStatus {
@@ -87,6 +94,10 @@ enum MessageType {
   TEXT
   IMAGE
   FILE
+  AUDIO
+  VIDEO
+  LOCATION
+  TEMPLATE
 }
 
 enum NotificationType {
@@ -166,6 +177,88 @@ enum SubscriptionStatus {
   CANCELLED
 }
 
+// ─── Phase 2: AI Chatbot Enums ────────────────────────────────────────────────
+
+enum AIProviderType {
+  CLAUDE
+  OPENAI
+  GEMINI
+  CUSTOM
+}
+
+enum KnowledgeBaseType {
+  FAQ
+  SOP
+  PRICING
+  DOCUMENT
+  CUSTOM
+}
+
+enum AIToolCallStatus {
+  SUCCESS
+  FAILED
+}
+
+// ─── Phase 3: Multichannel Enums ──────────────────────────────────────────────
+
+enum DeliveryStatus {
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum WebhookLogStatus {
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+// ─── Phase 4: Widget Enums ────────────────────────────────────────────────────
+
+enum WidgetPosition {
+  BOTTOM_RIGHT
+  BOTTOM_LEFT
+}
+
+enum WidgetButtonIcon {
+  CHAT
+  HELP
+  CUSTOM
+}
+
+// ─── Phase 5: Analytics Enums ─────────────────────────────────────────────────
+
+enum LeadScoreTier {
+  HOT
+  WARM
+  COOL
+  COLD
+}
+
+enum PredictionType {
+  FOLLOW_UP_TIME
+  AGENT_MATCH
+  CONVERSION_PROB
+  MESSAGE_DRAFT
+}
+
+enum StatsDimension {
+  DEPARTMENT
+  SOURCE
+  AGENT
+  HOUR
+  DAY
+  STAGE
+}
+
+enum WeightCategory {
+  ENGAGEMENT
+  ATTRIBUTE
+  HISTORICAL
+  CONVERSATION
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -206,6 +299,20 @@ model Tenant {
   auditLogs          AuditLog[]
   fileUploads        FileUpload[]
   dashboardWidgets   DashboardWidget[]
+  aiProviders        AIProvider[]
+  knowledgeBases     KnowledgeBase[]
+  aiConversations    AIConversation[]
+  aiToolCalls        AIToolCall[]
+  channelConfigs     ChannelConfig[]
+  customerChannels   CustomerChannel[]
+  messageDeliveries  MessageDelivery[]
+  webhookLogs        WebhookLog[]
+  widgetConfigs      WidgetConfig[]
+  widgetVisitors     WidgetVisitor[]
+  leadScores         LeadScore[]
+  predictions        Prediction[]
+  scoringWeights     ScoringWeight[]
+  conversionStats    ConversionStat[]
 
   @@map("tenants")
 }
@@ -284,28 +391,30 @@ model PasswordResetToken {
 }
 
 model Department {
-  id                 String   @id @default(uuid()) @map("id")
-  tenantId           String   @map("tenant_id")
-  name               String   @map("name")
-  slug               String   @map("slug")
-  description        String?  @map("description")
-  icon               String?  @map("icon")
-  color              String?  @map("color")
-  contactEmail       String?  @map("contact_email")
-  contactPhone       String?  @map("contact_phone")
-  websiteUrl         String?  @map("website_url")
-  knowledgeBaseConfig Json?   @map("knowledge_base_config")
-  isActive           Boolean  @default(true) @map("is_active")
-  createdAt          DateTime @default(now()) @map("created_at")
+  id                  String   @id @default(uuid()) @map("id")
+  tenantId            String   @map("tenant_id")
+  name                String   @map("name")
+  slug                String   @map("slug")
+  description         String?  @map("description")
+  icon                String?  @map("icon")
+  color               String?  @map("color")
+  contactEmail        String?  @map("contact_email")
+  contactPhone        String?  @map("contact_phone")
+  websiteUrl          String?  @map("website_url")
+  knowledgeBaseConfig Json?    @map("knowledge_base_config")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  users          User[]
-  pipelineStages PipelineStage[]
-  leads          Lead[]
-  followUpRules  FollowUpRule[]
-  callbacks      Callback[]
-  invitations    Invitation[]
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users           User[]
+  pipelineStages  PipelineStage[]
+  leads           Lead[]
+  followUpRules   FollowUpRule[]
+  callbacks       Callback[]
+  invitations     Invitation[]
   cannedResponses CannedResponse[]
+  knowledgeBases  KnowledgeBase[]
+  widgetConfigs   WidgetConfig[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -350,6 +459,9 @@ model Customer {
   tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   leads               Lead[]
   broadcastRecipients BroadcastRecipient[]
+  channels            CustomerChannel[]
+  conversations       Conversation[]       @relation("ConversationCustomer")
+  widgetVisitors      WidgetVisitor[]
 
   @@unique([tenantId, mobile])
   @@index([tenantId])
@@ -384,6 +496,8 @@ model Lead {
   conversations Conversation[]
   escalations   Escalation[]
   fileUploads   FileUpload[]
+  score         LeadScore?
+  predictions   Prediction[]
 
   @@index([tenantId])
   @@index([tenantId, departmentId])
@@ -471,20 +585,23 @@ model Callback {
 }
 
 model Conversation {
-  id             String             @id @default(uuid()) @map("id")
-  tenantId       String             @map("tenant_id")
-  leadId         String             @map("lead_id")
-  channel        ConversationChannel @default(MANUAL) @map("channel")
-  status         ConversationStatus @default(ACTIVE) @map("status")
-  assignedAgentId String?           @map("assigned_agent_id")
-  startedAt      DateTime           @default(now()) @map("started_at")
-  closedAt       DateTime?          @map("closed_at")
+  id              String              @id @default(uuid()) @map("id")
+  tenantId        String              @map("tenant_id")
+  leadId          String?             @map("lead_id")
+  customerId      String?             @map("customer_id")
+  channel         ConversationChannel @default(MANUAL) @map("channel")
+  status          ConversationStatus  @default(ACTIVE) @map("status")
+  assignedAgentId String?             @map("assigned_agent_id")
+  startedAt       DateTime            @default(now()) @map("started_at")
+  closedAt        DateTime?           @map("closed_at")
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  lead        Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  agent       User?        @relation(fields: [assignedAgentId], references: [id])
-  messages    Message[]
-  escalations Escalation[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead            Lead?            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  customer        Customer?        @relation("ConversationCustomer", fields: [customerId], references: [id])
+  agent           User?            @relation(fields: [assignedAgentId], references: [id])
+  messages        Message[]
+  escalations     Escalation[]
+  aiConversations AIConversation[]
 
   @@index([tenantId])
   @@map("conversations")
@@ -501,8 +618,9 @@ model Message {
   fileUrl        String?           @map("file_url")
   createdAt      DateTime          @default(now()) @map("created_at")
 
-  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  delivery     MessageDelivery?
 
   @@index([conversationId])
   @@index([tenantId])
@@ -672,4 +790,298 @@ model DashboardWidget {
   @@index([tenantId, userId])
   @@index([tenantId])
   @@map("dashboard_widgets")
+}
+
+// ─── Phase 2: AI Chatbot Models ───────────────────────────────────────────────
+
+model AIProvider {
+  id        String         @id @default(uuid()) @map("id")
+  tenantId  String         @map("tenant_id")
+  provider  AIProviderType @map("provider")
+  apiKey    String         @map("api_key")
+  modelName String         @map("model_name")
+  config    Json?          @map("config")
+  isActive  Boolean        @default(true) @map("is_active")
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("ai_providers")
+}
+
+model KnowledgeBase {
+  id             String            @id @default(uuid()) @map("id")
+  tenantId       String            @map("tenant_id")
+  departmentId   String            @map("department_id")
+  type           KnowledgeBaseType @map("type")
+  title          String            @map("title")
+  content        String            @map("content") @db.Text
+  embedding      Json?             @map("embedding")
+  embeddingModel String?           @map("embedding_model")
+  isActive       Boolean           @default(true) @map("is_active")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, departmentId])
+  @@map("knowledge_bases")
+}
+
+model AIConversation {
+  id                String   @id @default(uuid()) @map("id")
+  tenantId          String   @map("tenant_id")
+  conversationId    String   @map("conversation_id")
+  providerUsed      String   @map("provider_used")
+  modelUsed         String   @map("model_used")
+  totalTokens       Int      @default(0) @map("total_tokens")
+  totalCost         Float    @default(0) @map("total_cost")
+  handoffReason     String?  @map("handoff_reason")
+  satisfactionScore Int?     @map("satisfaction_score")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  toolCalls    AIToolCall[]
+
+  @@index([tenantId])
+  @@index([conversationId])
+  @@map("ai_conversations")
+}
+
+model AIToolCall {
+  id               String           @id @default(uuid()) @map("id")
+  tenantId         String           @map("tenant_id")
+  aiConversationId String           @map("ai_conversation_id")
+  toolName         String           @map("tool_name")
+  input            Json             @map("input")
+  output           Json?            @map("output")
+  status           AIToolCallStatus @map("status")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  aiConversation AIConversation @relation(fields: [aiConversationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([aiConversationId])
+  @@map("ai_tool_calls")
+}
+
+// ─── Phase 3: Multichannel Models ────────────────────────────────────────────
+
+model ChannelConfig {
+  id            String              @id @default(uuid()) @map("id")
+  tenantId      String              @map("tenant_id")
+  channel       ConversationChannel @map("channel")
+  credentials   String              @map("credentials") @db.Text
+  webhookSecret String?             @map("webhook_secret")
+  config        Json?               @map("config")
+  isActive      Boolean             @default(false) @map("is_active")
+  verifiedAt    DateTime?           @map("verified_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, channel])
+  @@index([tenantId])
+  @@map("channel_configs")
+}
+
+model CustomerChannel {
+  id            String              @id @default(uuid()) @map("id")
+  tenantId      String              @map("tenant_id")
+  customerId    String              @map("customer_id")
+  channel       ConversationChannel @map("channel")
+  externalId    String              @map("external_id")
+  displayName   String?             @map("display_name")
+  profilePicUrl String?             @map("profile_pic_url")
+  lastSeenAt    DateTime?           @map("last_seen_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, channel, externalId])
+  @@index([tenantId])
+  @@index([customerId])
+  @@map("customer_channels")
+}
+
+model MessageDelivery {
+  id                String         @id @default(uuid()) @map("id")
+  messageId         String         @unique @map("message_id")
+  tenantId          String         @map("tenant_id")
+  externalMessageId String?        @map("external_message_id")
+  status            DeliveryStatus @default(SENT) @map("status")
+  errorMessage      String?        @map("error_message")
+  errorCode         String?        @map("error_code")
+  sentAt            DateTime?      @map("sent_at")
+  deliveredAt       DateTime?      @map("delivered_at")
+  readAt            DateTime?      @map("read_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([messageId])
+  @@map("message_delivery")
+}
+
+model WebhookLog {
+  id               String              @id @default(uuid()) @map("id")
+  tenantId         String?             @map("tenant_id")
+  channel          ConversationChannel @map("channel")
+  eventType        String?             @map("event_type")
+  payload          Json                @map("payload")
+  status           WebhookLogStatus    @default(PROCESSED) @map("status")
+  errorMessage     String?             @map("error_message")
+  processingTimeMs Int?                @map("processing_time_ms")
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@map("webhook_logs")
+}
+
+// ─── Phase 4: Widget Models ───────────────────────────────────────────────────
+
+model WidgetConfig {
+  id                    String           @id @default(uuid()) @map("id")
+  tenantId              String           @map("tenant_id")
+  departmentId          String           @map("department_id")
+  welcomeMessage        String?          @map("welcome_message")
+  placeholderText       String?          @map("placeholder_text")
+  position              WidgetPosition   @default(BOTTOM_RIGHT) @map("position")
+  buttonIcon            WidgetButtonIcon @default(CHAT) @map("button_icon")
+  themeOverride         Json?            @map("theme_override")
+  offlineMessage        String?          @map("offline_message")
+  preChatForm           Json?            @map("pre_chat_form")
+  quickActions          Json?            @map("quick_actions")
+  businessHours         Json?            @map("business_hours")
+  autoOpenDelayMs       Int              @default(0) @map("auto_open_delay_ms")
+  maxConcurrentVisitors Int              @default(100) @map("max_concurrent_visitors")
+  isActive              Boolean          @default(true) @map("is_active")
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id])
+
+  @@unique([tenantId, departmentId])
+  @@index([tenantId])
+  @@map("widget_configs")
+}
+
+model WidgetVisitor {
+  id            String    @id @default(uuid()) @map("id")
+  tenantId      String    @map("tenant_id")
+  visitorId     String    @map("visitor_id")
+  customerId    String?   @map("customer_id")
+  firstPageUrl  String?   @map("first_page_url")
+  referrerUrl   String?   @map("referrer_url")
+  userAgent     String?   @map("user_agent")
+  ipCountry     String?   @map("ip_country")
+  ipCity        String?   @map("ip_city")
+  totalVisits   Int       @default(1) @map("total_visits")
+  totalMessages Int       @default(0) @map("total_messages")
+  firstSeenAt   DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt    DateTime  @default(now()) @map("last_seen_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@unique([tenantId, visitorId])
+  @@index([tenantId])
+  @@map("widget_visitors")
+}
+
+// ─── Phase 5: Analytics Models ────────────────────────────────────────────────
+
+model LeadScore {
+  id                String         @id @default(uuid()) @map("id")
+  tenantId          String         @map("tenant_id")
+  leadId            String         @unique @map("lead_id")
+  score             Int            @map("score")
+  tier              LeadScoreTier  @map("tier")
+  previousScore     Int?           @map("previous_score")
+  previousTier      LeadScoreTier? @map("previous_tier")
+  engagementScore   Float          @default(0) @map("engagement_score")
+  attributeScore    Float          @default(0) @map("attribute_score")
+  historicalScore   Float          @default(0) @map("historical_score")
+  conversationScore Float          @default(0) @map("conversation_score")
+  factors           Json?          @map("factors")
+  scoreChange       Int?           @map("score_change")
+  computedAt        DateTime       @default(now()) @map("computed_at")
+  expiresAt         DateTime?      @map("expires_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, tier])
+  @@map("lead_scores")
+}
+
+model Prediction {
+  id         String         @id @default(uuid()) @map("id")
+  tenantId   String         @map("tenant_id")
+  leadId     String         @map("lead_id")
+  type       PredictionType @map("type")
+  value      Json           @map("value")
+  confidence Float          @map("confidence")
+  reasoning  String?        @map("reasoning") @db.Text
+  accepted   Boolean?       @map("accepted")
+  outcome    Json?          @map("outcome")
+  computedAt DateTime       @default(now()) @map("computed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([leadId, type])
+  @@map("predictions")
+}
+
+model ScoringWeight {
+  id          String         @id @default(uuid()) @map("id")
+  tenantId    String         @map("tenant_id")
+  featureName String         @map("feature_name")
+  weight      Float          @map("weight")
+  category    WeightCategory @map("category")
+  autoTuned   Boolean        @default(false) @map("auto_tuned")
+  lastTunedAt DateTime?      @map("last_tuned_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, featureName])
+  @@index([tenantId])
+  @@map("scoring_weights")
+}
+
+model ConversionStat {
+  id               String         @id @default(uuid()) @map("id")
+  tenantId         String         @map("tenant_id")
+  dimension        StatsDimension @map("dimension")
+  dimensionValue   String         @map("dimension_value")
+  totalLeads       Int            @default(0) @map("total_leads")
+  convertedLeads   Int            @default(0) @map("converted_leads")
+  conversionRate   Float          @default(0) @map("conversion_rate")
+  avgTimeToConvert Float?         @map("avg_time_to_convert")
+  avgMessages      Float?         @map("avg_messages")
+  periodStart      DateTime       @map("period_start")
+  periodEnd        DateTime       @map("period_end")
+  computedAt       DateTime       @default(now()) @map("computed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, dimension])
+  @@map("conversion_stats")
 }
