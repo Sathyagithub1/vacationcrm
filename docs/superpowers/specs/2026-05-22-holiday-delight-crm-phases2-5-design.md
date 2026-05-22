@@ -121,17 +121,19 @@ On handoff: full conversation history + AI-generated summary passed to agent. Ag
 - api_key (encrypted)
 - model_name (e.g., "claude-sonnet-4-5-20250514")
 - config (JSON: temperature, max_tokens, etc.)
-- is_active, created_at
+- is_active, created_at, updated_at
 
 **knowledge_bases**
 - id, tenant_id, department_id
 - type (FAQ | SOP | PRICING | DOCUMENT | CUSTOM)
 - title, content (text)
-- embedding (vector, for semantic search)
+- embedding (Float[] — stored as JSON array, semantic search via raw SQL)
+- embedding_model (string — tracks which provider/model generated the embedding, e.g., "claude-embed-1024")
 - is_active, created_at, updated_at
+- Note: Embedding dimensions vary by provider (OpenAI: 1536, Claude: 1024, Gemini: 768). If tenant switches AI provider, embeddings must be recomputed via a background job. Similarity search uses raw SQL: `SELECT ... ORDER BY 1 - (embedding <=> $1::float[]) DESC LIMIT 10`. No pgvector extension required — uses native array comparison with a GIN index.
 
 **ai_conversations**
-- id, conversation_id (FK)
+- id, tenant_id, conversation_id (FK)
 - provider_used, model_used
 - total_tokens, total_cost
 - handoff_reason (nullable)
@@ -139,7 +141,7 @@ On handoff: full conversation history + AI-generated summary passed to agent. Ag
 - created_at
 
 **ai_tool_calls**
-- id, ai_conversation_id
+- id, tenant_id, ai_conversation_id
 - tool_name
 - input (JSON), output (JSON)
 - status (SUCCESS | FAILED)
@@ -284,7 +286,7 @@ interface InboundMessage {
 - Auth: Basic auth or IP whitelist
 - Features: Text (HTML stripped), attachments, reply threading (In-Reply-To header)
 - Matching: From email → customer.email lookup
-- Config: Inbound domain, SendGrid API key or IMAP credentials
+- Config: Inbound domain, SendGrid API key. (IMAP polling dropped — webhook-only for simplicity. All email providers support inbound webhook or forwarding rules.)
 
 **SMS (Twilio / MSG91)**
 - API: Twilio Programmable SMS or MSG91 (India)
@@ -320,7 +322,7 @@ MANUAL | WHATSAPP | FACEBOOK | INSTAGRAM | EMAIL | SMS | TELEGRAM | WEBSITE
 - credentials (encrypted JSON: API keys, tokens)
 - webhook_secret
 - config (JSON: sender ID, default department, auto-reply toggle)
-- is_active, verified_at, created_at
+- is_active, verified_at, created_at, updated_at
 
 **customer_channels**
 - id, tenant_id, customer_id
@@ -331,7 +333,7 @@ MANUAL | WHATSAPP | FACEBOOK | INSTAGRAM | EMAIL | SMS | TELEGRAM | WEBSITE
 - Unique constraint: (tenant_id, channel, external_id)
 
 **message_delivery**
-- id, message_id, tenant_id
+- id, message_id (FK → messages), tenant_id
 - external_message_id (provider's msg ID)
 - status (SENT | DELIVERED | READ | FAILED)
 - error_message, error_code
@@ -384,7 +386,24 @@ GET    /api/customers/[id]/channels    # List customer's linked channels
 POST   /api/customers/[id]/merge       # Merge duplicate customers
 ```
 
-### 3.8 Cross-Channel Customer Merging
+### 3.8 Conversation Model Update (Breaking Change from Phase 1)
+
+The existing `Conversation` model has a required `leadId` FK. In Phase 1, agents always start conversations from a lead detail page. In Phases 3-4, inbound messages arrive from customers who may not have a lead yet (e.g., new WhatsApp message, anonymous widget visitor). The AI `create_lead` tool creates the lead during the conversation.
+
+**Schema change:**
+- `Conversation.leadId` becomes **nullable**
+- Add `Conversation.customerId` (nullable, FK → customers)
+- Constraint: at least one of `leadId` or `customerId` must be populated
+- When AI creates a lead during conversation, `leadId` gets populated retroactively
+
+**Flow for inbound channel messages:**
+1. Message arrives → match `external_id` to `customer_channels` → find or create customer
+2. Create `Conversation` with `customerId` set, `leadId` null, `channel` set
+3. AI handles conversation, asks for travel details
+4. AI calls `create_lead` tool → lead created, `Conversation.leadId` updated
+5. Agent sees conversation with both customer and lead linked
+
+### 3.9 Cross-Channel Customer Merging
 
 Same customer can message from multiple channels. Merge logic:
 1. **Phone match:** WhatsApp phone = SMS phone = customer.mobile → auto-merge
@@ -394,7 +413,7 @@ Same customer can message from multiple channels. Merge logic:
 
 All conversations across channels visible in one unified timeline per customer.
 
-### 3.9 Webhook Security
+### 3.10 Webhook Security
 
 - All webhooks verify signatures before processing (HMAC-SHA256 for Meta, Twilio signature for SMS)
 - Webhook URLs include tenant-specific secret path segment: `/api/webhooks/whatsapp/{tenantId}/{secret}`
@@ -402,7 +421,7 @@ All conversations across channels visible in one unified timeline per customer.
 - All payloads logged to webhook_logs for debugging (auto-purge 30 days)
 - Idempotency: external_message_id dedup prevents double processing
 
-### 3.10 New UI
+### 3.11 New UI
 
 - **Settings → Channels:** Per-channel setup with credentials, webhook URL display, test connection button, enable/disable toggle
 - **Settings → Channel Routing:** Map channels to default departments
@@ -484,6 +503,13 @@ Displayed as rounded chips below the welcome message. Visitor taps one → sends
 5. **Cross-visit persistence:** Same visitor_id on return → resume previous conversation
 6. **Cross-device:** Once linked to customer, any channel shows full history
 
+**Abuse Protection:**
+- IP-based rate limiting on session creation: 10 sessions/hour per IP
+- Message rate limit: 20 messages/minute per visitor session
+- `max_concurrent_visitors` config per tenant in `widget_configs` (default: 100)
+- After 5 messages from unidentified visitor without providing contact info, bot prompts for identification
+- Visitor JWT is short-lived (24h), limited scope (read/write own conversation only)
+
 ### 4.5 Embed Code
 
 ```html
@@ -512,7 +538,8 @@ One line. Async load. No impact on page speed.
 - quick_actions (JSON array: `[{label, message}]`)
 - business_hours (JSON: per-day open/close times)
 - auto_open_delay_ms (0 = manual, 3000 = auto-open after 3s)
-- is_active, created_at
+- max_concurrent_visitors (default: 100)
+- is_active, created_at, updated_at
 
 **widget_visitors**
 - id, tenant_id
@@ -671,11 +698,14 @@ No TensorFlow, PyTorch, or Python needed. The AI provider handles message genera
 ### 5.5 New Database Tables
 
 **lead_scores**
-- id, tenant_id, lead_id (unique)
+- id, tenant_id, lead_id (unique — current score only)
 - score (0-100)
 - tier (HOT | WARM | COOL | COLD)
+- previous_score (nullable — last score before recomputation)
+- previous_tier (nullable)
 - engagement_score, attribute_score, historical_score, conversation_score
 - factors (JSON: breakdown of scoring reasons)
+- score_change (computed: score - previous_score)
 - computed_at, expires_at
 
 **predictions**
@@ -694,7 +724,7 @@ No TensorFlow, PyTorch, or Python needed. The AI provider handles message genera
 - weight (float)
 - category (ENGAGEMENT | ATTRIBUTE | HISTORICAL | CONVERSATION)
 - auto_tuned (boolean)
-- last_tuned_at
+- last_tuned_at, updated_at
 
 **conversion_stats**
 - id, tenant_id
@@ -797,6 +827,13 @@ Before: MANUAL
 After:  MANUAL | WHATSAPP | FACEBOOK | INSTAGRAM | EMAIL | SMS | TELEGRAM | WEBSITE
 ```
 
+### MessageType
+```
+Before: TEXT | IMAGE | FILE
+After:  TEXT | IMAGE | FILE | AUDIO | VIDEO | LOCATION | TEMPLATE
+```
+Note: AUDIO/VIDEO for WhatsApp/Telegram voice/video messages. LOCATION for shared coordinates. TEMPLATE for WhatsApp HSM template messages.
+
 ### New Enums
 
 ```
@@ -836,6 +873,12 @@ WeightCategory:    ENGAGEMENT | ATTRIBUTE | HISTORICAL | CONVERSATION
 
 **Total new tables:** 14
 
+**Existing model changes:**
+- `Conversation.leadId` → nullable (was required). Add `customerId` (nullable FK → customers).
+- `Message` → add `delivery MessageDelivery?` relation
+- `Department` → add `knowledgeBases KnowledgeBase[]` relation
+- `Lead` → add `score LeadScore?` and `predictions Prediction[]` relations
+
 ---
 
 ## 8. New Workers Summary
@@ -857,10 +900,10 @@ WeightCategory:    ENGAGEMENT | ATTRIBUTE | HISTORICAL | CONVERSATION
 | `openai` | 2 | OpenAI API adapter |
 | `@google/generative-ai` | 2 | Gemini API adapter |
 | (no new packages) | 3 | All channels use `fetch` — Meta/Twilio/Telegram APIs are REST |
-| (no new packages) | 4 | Widget is vanilla JS + existing React/Socket.io |
+| `geoip-lite` | 4 | IP geolocation for widget visitors (local MaxMind DB, no external API) |
 | (no new packages) | 5 | Scoring is TypeScript + SQL — no ML libraries |
 
-**Total new dependencies:** 3 (all AI SDKs for Phase 2)
+**Total new dependencies:** 4 (3 AI SDKs for Phase 2 + geoip-lite for Phase 4)
 
 ---
 
@@ -884,7 +927,28 @@ Phase 1 (complete) ──→ Phase 2 (AI Chatbot)
 
 ---
 
-## 11. Security Considerations
+## 11. RBAC Updates (New Pages & Routes)
+
+| Page / Action | Super Admin | Company Admin | Dept Manager | Agent | Viewer |
+|---------------|:-----------:|:------------:|:------------:|:-----:|:------:|
+| **Settings → AI Configuration** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Settings → Knowledge Base** | ✅ all | ✅ all | ✅ own dept | ❌ | ❌ |
+| **Settings → Channels** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Settings → Channel Routing** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Settings → Widget** | ✅ all | ✅ all | ✅ own dept | ❌ | ❌ |
+| **Settings → Analytics** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **AI Metrics (dashboard)** | ✅ | ✅ | ✅ dept | ✅ own | ✅ read |
+| **Lead Score — View** | ✅ | ✅ | ✅ own dept | ✅ assigned | ✅ read |
+| **Lead Score — Override weights** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Predictions — View** | ✅ | ✅ | ✅ own dept | ✅ assigned | ✅ read |
+| **Predictions — Accept/Draft follow-up** | ✅ | ✅ | ✅ own dept | ✅ assigned | ❌ |
+| **Widget Visitors — View** | ✅ | ✅ | ✅ own dept | ❌ | ✅ read |
+| **Webhook Logs — View** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Customer Merge** | ✅ | ✅ | ✅ own dept | ❌ | ❌ |
+
+---
+
+## 12. Security Considerations
 
 - **API keys encrypted at rest** in ai_providers and channel_configs (AES-256-GCM, key from env)
 - **Webhook signatures verified** before processing any inbound message
