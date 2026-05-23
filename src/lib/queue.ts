@@ -100,3 +100,57 @@ export async function addFollowUpRulesJob(data: {
     backoff: { type: "exponential", delay: 1000 },
   });
 }
+
+// Phase 5: Scoring & Analytics queues
+export function getScoringQueue() {
+  return getQueue("scoring");
+}
+
+export function getAnalyticsQueue() {
+  return getQueue("analytics");
+}
+
+export async function addScoringJob(data: {
+  tenantId: string;
+  leadId: string;
+  trigger: "lead_created" | "stage_changed" | "message_received" | "followup_completed" | "batch";
+}) {
+  const queue = getScoringQueue();
+  if (!queue) {
+    console.warn("[Queue] Scoring queue unavailable, skipping job");
+    return null;
+  }
+  return queue.add("score-lead", data, {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1000 },
+  });
+}
+
+export async function addBatchScoringJob(data: {
+  tenantId: string;
+}) {
+  const queue = getScoringQueue();
+  if (!queue) {
+    console.warn("[Queue] Scoring queue unavailable, skipping job");
+    return null;
+  }
+  return queue.add("score-all-active", data, {
+    attempts: 1,
+    backoff: { type: "exponential", delay: 5000 },
+  });
+}
+
+export async function addAnalyticsJob(data: {
+  tenantId: string;
+  type: "refresh_stats" | "tune_weights";
+}) {
+  const queue = getAnalyticsQueue();
+  if (!queue) {
+    console.warn("[Queue] Analytics queue unavailable, skipping job");
+    return null;
+  }
+  return queue.add(data.type, data, {
+    attempts: 1,
+    backoff: { type: "exponential", delay: 5000 },
+  });
+}
