@@ -10,6 +10,8 @@ import { createNotificationWorker } from "./notification.worker";
 import { createCallbackWorker } from "./callback.worker";
 import { createBroadcastWorker } from "./broadcast.worker";
 import { createFutureInterestWorker } from "./future-interest.worker";
+import { createScoringWorker } from "./scoring.worker";
+import { createAnalyticsWorker } from "./analytics.worker";
 import { getRedis } from "@/lib/redis";
 
 type WorkerInstance = { close: () => Promise<void> } | null;
@@ -32,6 +34,8 @@ async function start() {
   const callbackWorker = createCallbackWorker();
   const broadcastWorker = createBroadcastWorker();
   const futureInterestWorker = createFutureInterestWorker();
+  const scoringWorker = createScoringWorker();
+  const analyticsWorker = createAnalyticsWorker();
 
   workers.push(
     followUpWorker,
@@ -39,7 +43,9 @@ async function start() {
     notificationWorker,
     callbackWorker,
     broadcastWorker,
-    futureInterestWorker
+    futureInterestWorker,
+    scoringWorker,
+    analyticsWorker
   );
 
   const activeCount = workers.filter((w) => w !== null).length;
