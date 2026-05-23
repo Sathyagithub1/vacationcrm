@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { X, MessageSquare } from "lucide-react";
-import { MessageBubble, type MessageData } from "./message-bubble";
+import { MessageBubble, HumanTakeoverDivider, type MessageData } from "./message-bubble";
 import { ChatInput } from "./chat-input";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/loading";
@@ -84,9 +84,22 @@ export function ChatThread({
           </div>
         ) : (
           <div className="space-y-3">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
+            {messages.map((msg, idx) => {
+              // Insert a divider when conversation transfers to a human agent
+              // Detect: previous message was BOT and this one is AGENT (human takeover boundary)
+              const prevMsg = idx > 0 ? messages[idx - 1] : null;
+              const showTakeoverDivider =
+                conversationStatus === "HUMAN_TAKEOVER" &&
+                msg.senderType === "AGENT" &&
+                prevMsg?.senderType === "BOT";
+
+              return (
+                <React.Fragment key={msg.id}>
+                  {showTakeoverDivider && <HumanTakeoverDivider />}
+                  <MessageBubble message={msg} />
+                </React.Fragment>
+              );
+            })}
             <div ref={messagesEndRef} />
           </div>
         )}
