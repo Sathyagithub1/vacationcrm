@@ -38,7 +38,7 @@ export async function POST(
     // Fetch recent conversation history (last 10 messages across all conversations)
     const conversations = await db.conversation.findMany({
       where: { leadId: id, tenantId: user.tenantId },
-      orderBy: { createdAt: "desc" },
+      orderBy: { startedAt: "desc" },
       take: 3,
       include: {
         messages: {
@@ -101,7 +101,7 @@ export async function POST(
     const provider = createProvider(
       providerConfig.provider,
       providerConfig.apiKey,
-      providerConfig.model
+      providerConfig.modelName
     );
 
     const systemPrompt = `You are an expert travel CRM assistant. Your job is to help travel agents write personalised, warm, and professional follow-up messages to potential customers. Always write in a friendly, helpful tone. Do not include placeholder text like "[Agent Name]" — use context provided instead. Return a JSON object with exactly two fields: "message" (the follow-up text) and "suggestedTime" (an ISO 8601 timestamp representing the best time to send this follow-up, based on urgency derived from travel date and stage).`;

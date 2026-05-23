@@ -22,7 +22,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     const { user, db } = await requirePermission("settings:widget");
 
-    const config = await db.widgetConfig.findFirst({
+    const config = await (db as any).widgetConfig.findFirst({
       where: { id },
       select: {
         id: true,
@@ -30,27 +30,34 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         position: true,
         department: { select: { slug: true } },
       },
-    });
+    }) as { id: string; isActive: boolean; position: string; department: { slug: string } } | null;
 
     if (!config) {
       return NextResponse.json({ error: "Widget config not found" }, { status: 404 });
     }
 
-    // Resolve tenant slug for the embed URL
+    // Resolve tenant slug + product name for the embed snippet
     const tenant = await prisma.tenant.findUnique({
       where: { id: user.tenantId },
-      select: { slug: true },
+      select: { slug: true, productName: true },
     });
 
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://your-crm-domain.com";
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL;
+    if (!baseUrl) {
+      return NextResponse.json(
+        { error: "Server misconfigured — NEXT_PUBLIC_APP_URL or NEXTAUTH_URL must be set to generate embed code" },
+        { status: 500 }
+      );
+    }
     const tenantSlug = tenant.slug;
     const deptSlug = config.department.slug;
+    const productName = tenant.productName;
 
-    const embedCode = `<!-- Holiday Delight CRM Chat Widget -->
+    const embedCode = `<!-- ${productName} Chat Widget -->
 <script>
   window.__hdWidget = {
     tenant: "${tenantSlug}",
@@ -64,7 +71,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     d.head.appendChild(js);
   })(document, "script");
 </script>
-<!-- End Holiday Delight CRM Chat Widget -->`;
+<!-- End ${productName} Chat Widget -->`;
 
     return NextResponse.json({
       embedCode,

@@ -30,7 +30,7 @@ export async function getWidgetConfig(tenantSlug: string, departmentSlug: string
 
   if (!department) return null;
 
-  const config = await prisma.widgetConfig.findFirst({
+  const config = await (prisma as any).widgetConfig.findFirst({
     where: { tenantId: tenant.id, departmentId: department.id, isActive: true },
     select: {
       id: true,
@@ -44,7 +44,7 @@ export async function getWidgetConfig(tenantSlug: string, departmentSlug: string
       businessHours: true,
       autoOpenDelayMs: true,
     },
-  });
+  }) as Record<string, unknown> | null;
 
   if (!config) return null;
 
@@ -71,7 +71,7 @@ export async function getWidgetConfig(tenantSlug: string, departmentSlug: string
  * Admin: list all WidgetConfigs for the tenant.
  */
 export async function listWidgetConfigs(db: TenantDb) {
-  return db.widgetConfig.findMany({
+  return (db as any).widgetConfig.findMany({
     orderBy: { createdAt: "desc" },
     include: {
       department: { select: { id: true, name: true, slug: true, color: true } },
@@ -98,7 +98,7 @@ interface CreateWidgetConfigData {
  * Each department can have at most one config (enforced by @@unique).
  */
 export async function createWidgetConfig(db: TenantDb, data: CreateWidgetConfigData) {
-  return (db.widgetConfig.create as Function)({
+  return (db as any).widgetConfig.create({
     data: {
       departmentId: data.departmentId,
       welcomeMessage: data.welcomeMessage ?? "Hello! How can we help you today?",
@@ -138,7 +138,7 @@ interface UpdateWidgetConfigData {
  * Admin: update an existing WidgetConfig by id.
  */
 export async function updateWidgetConfig(db: TenantDb, id: string, data: UpdateWidgetConfigData) {
-  const existing = await db.widgetConfig.findFirst({ where: { id } });
+  const existing = await (db as any).widgetConfig.findFirst({ where: { id } }) as Record<string, unknown> | null;
   if (!existing) throw new Error("Widget config not found");
 
   const updatePayload: Record<string, unknown> = {};
@@ -155,7 +155,7 @@ export async function updateWidgetConfig(db: TenantDb, id: string, data: UpdateW
     updatePayload.maxConcurrentVisitors = data.maxConcurrentVisitors;
   if (data.isActive !== undefined) updatePayload.isActive = data.isActive;
 
-  return (db.widgetConfig.update as Function)({
+  return (db as any).widgetConfig.update({
     where: { id },
     data: updatePayload,
     include: {

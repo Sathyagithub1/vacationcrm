@@ -19,11 +19,11 @@ import { createChannelAdapter } from "@/modules/channels/adapters/index";
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { db } = await requirePermission("settings:channels");
-    const { id } = params;
+    const { user, db } = await requirePermission("settings:channels");
+    const { id } = await params;
 
     const config = await db.channelConfig.findFirst({ where: { id } });
     if (!config) {
@@ -41,11 +41,17 @@ export async function POST(
       );
     }
 
+    const tenant = await db.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { productName: true },
+    });
+    const productName = tenant?.productName ?? "this CRM";
+
     const adapter = createChannelAdapter(config.channel, config.credentials);
 
     const result = await adapter.sendMessage({
       externalId: recipientExternalId,
-      content: "This is a test message from Holiday Delight CRM. Your channel connection is working correctly.",
+      content: `This is a test message from ${productName}. Your channel connection is working correctly.`,
       messageType: "TEXT",
     });
 

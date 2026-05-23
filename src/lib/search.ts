@@ -120,5 +120,10 @@ export async function globalSearch(
     }),
   ]);
 
-  return { customers, leads, conversations };
+  // Filter out conversations without a lead — search is lead-scoped
+  const conversationsWithLead = conversations.filter(
+    (c): c is typeof c & { lead: { customer: { name: string } } } => c.lead !== null
+  );
+
+  return { customers, leads, conversations: conversationsWithLead };
 }

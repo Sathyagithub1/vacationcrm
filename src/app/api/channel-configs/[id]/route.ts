@@ -16,11 +16,11 @@ import { encrypt } from "@/lib/encryption";
 // ── PUT ───────────────────────────────────────────────────────────────────────
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { db } = await requirePermission("settings:channels");
-    const { id } = params;
+    const { id } = await params;
 
     // Confirm ownership
     const existing = await db.channelConfig.findFirst({ where: { id } });
@@ -93,11 +93,11 @@ export async function PUT(
 // ── DELETE ────────────────────────────────────────────────────────────────────
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { db } = await requirePermission("settings:channels");
-    const { id } = params;
+    const { id } = await params;
 
     const existing = await db.channelConfig.findFirst({ where: { id } });
     if (!existing) {

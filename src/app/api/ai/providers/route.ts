@@ -44,7 +44,7 @@ export async function GET(_request: NextRequest) {
 // POST /api/ai/providers — create a new AI provider and deactivate all others
 export async function POST(request: NextRequest) {
   try {
-    const { db } = await requirePermission("settings:ai");
+    const { user, db } = await requirePermission("settings:ai");
 
     const body = await request.json();
     const { provider, apiKey, modelName } = body as {
@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
 
       return tx.aIProvider.create({
         data: {
+          tenantId: user.tenantId,
           provider: provider as ProviderName,
           apiKey: encryptedKey,
           modelName: modelName.trim(),

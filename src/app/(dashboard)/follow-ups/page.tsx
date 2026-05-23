@@ -10,6 +10,8 @@ import {
   UserPlus,
   XCircle,
   Search,
+  Sparkles,
+  ThumbsUp,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +21,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { Spinner } from "@/components/ui/loading";
 import { useToast } from "@/components/ui/toast";
 import { Avatar } from "@/components/ui/avatar";
+import { Tabs } from "@/components/ui/tabs";
 import {
   Table,
   TableHeader,
@@ -46,6 +49,17 @@ interface FollowUp {
 interface Agent {
   id: string;
   name: string;
+}
+
+interface SuggestedFollowUp {
+  id: string;
+  leadId: string;
+  leadName: string;
+  bestTime: string;
+  draftMessage: string;
+  confidence: number;
+  type: string;
+  assigneeId?: string;
 }
 
 const typeLabels: Record<string, string> = {
@@ -100,6 +114,14 @@ export default function FollowUpsPage() {
   const [filterAgent, setFilterAgent] = React.useState("");
   const [agents, setAgents] = React.useState<Agent[]>([]);
 
+  // Tab state
+  const [activeTab, setActiveTab] = React.useState("queue");
+
+  // Suggested follow-ups
+  const [suggestions, setSuggestions] = React.useState<SuggestedFollowUp[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
+  const [approvingId, setApprovingId] = React.useState<string | null>(null);
+
   // Action modals
   const [snoozeTarget, setSnoozeTarget] = React.useState<FollowUp | null>(null);
   const [snoozeDate, setSnoozeDate] = React.useState("");
@@ -150,6 +172,59 @@ export default function FollowUpsPage() {
   React.useEffect(() => {
     fetchFollowUps();
   }, [fetchFollowUps]);
+
+  // Fetch suggested follow-ups when switching to that tab
+  const fetchSuggestions = React.useCallback(async () => {
+    setLoadingSuggestions(true);
+    try {
+      const res = await fetch("/api/follow-ups/suggestions");
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data.suggestions || []);
+      }
+    } catch {
+      // Non-critical
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (activeTab === "suggested") {
+      fetchSuggestions();
+    }
+  }, [activeTab, fetchSuggestions]);
+
+  // Approve a suggestion -> create a real follow-up
+  async function handleApproveSuggestion(suggestion: SuggestedFollowUp) {
+    setApprovingId(suggestion.id);
+    try {
+      const res = await fetch("/api/follow-ups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId: suggestion.leadId,
+          assignedTo: suggestion.assigneeId || agents[0]?.id,
+          type: suggestion.type || "REMINDER",
+          scheduledAt: suggestion.bestTime,
+          messageTemplate: suggestion.draftMessage,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to create follow-up");
+      }
+      toast("success", `Follow-up approved for ${suggestion.leadName}`);
+      // Remove from suggestions
+      setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
+      // Refresh the queue too
+      fetchFollowUps();
+    } catch (err) {
+      toast("error", err instanceof Error ? err.message : "Failed to approve");
+    } finally {
+      setApprovingId(null);
+    }
+  }
 
   // Actions
   async function handleComplete(id: string) {
@@ -282,6 +357,71 @@ export default function FollowUpsPage() {
     <div className="space-y-4">
       <PageHeader title="Follow-ups" subtitle={`${total} total follow-ups`} />
 
+      {/* Tabs: Queue vs Suggested */}
+      <Tabs
+        tabs={[
+          { label: "Queue", value: "queue" },
+          { label: `Suggested${suggestions.length > 0 ? ` (${suggestions.length})` : ""}`, value: "suggested" },
+        ]}
+        activeTab={activeTab}
+        onChange={setActiveTab}
+      />
+
+      {activeTab === "suggested" ? (
+        /* Suggested follow-ups tab */
+        loadingSuggestions ? (
+          <div className="flex h-64 items-center justify-center">
+            <Spinner size="lg" />
+          </div>
+        ) : suggestions.length === 0 ? (
+          <div className="flex h-64 flex-col items-center justify-center text-gray-500">
+            <Sparkles className="mb-2 h-10 w-10 text-gray-300" />
+            <p className="text-sm">No AI suggestions right now</p>
+            <p className="mt-1 text-xs text-gray-400">Suggestions are generated based on lead scoring and activity patterns</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {suggestions.map((s) => (
+              <div
+                key={s.id}
+                className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900">{s.leadName}</span>
+                      <span
+                        className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600"
+                        title="AI confidence score"
+                      >
+                        {s.confidence}% confidence
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <Clock className="h-3.5 w-3.5" />
+                      Best time: {formatDateTime(s.bestTime)}
+                    </div>
+                    <p className="line-clamp-2 text-sm text-gray-600">
+                      {s.draftMessage}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => handleApproveSuggestion(s)}
+                    loading={approvingId === s.id}
+                    disabled={approvingId !== null}
+                  >
+                    <ThumbsUp className="h-3.5 w-3.5" />
+                    Approve
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        /* Queue tab content */
+        <>
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <select
@@ -454,6 +594,9 @@ export default function FollowUpsPage() {
             </div>
           )}
         </div>
+      )}
+
+      </>
       )}
 
       {/* Snooze Modal */}

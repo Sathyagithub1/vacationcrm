@@ -93,12 +93,12 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     const { user, db } = await requirePermission("settings:widget");
 
-    const existing = await db.widgetConfig.findFirst({ where: { id } });
+    const existing = await (db as any).widgetConfig.findFirst({ where: { id } }) as Record<string, unknown> | null;
     if (!existing) {
       return NextResponse.json({ error: "Widget config not found" }, { status: 404 });
     }
 
-    await db.widgetConfig.delete({ where: { id } });
+    await (db as any).widgetConfig.delete({ where: { id } });
 
     await logAudit({
       tenantId: user.tenantId,

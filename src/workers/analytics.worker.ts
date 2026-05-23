@@ -5,6 +5,7 @@
  * scoring weights by comparing predicted scores vs actual outcomes.
  */
 import { Worker, Job } from "bullmq";
+import { Prisma } from "@prisma/client";
 import { prisma, tenantPrisma } from "@/lib/prisma";
 import { getRedis } from "@/lib/redis";
 
@@ -127,7 +128,7 @@ async function tuneWeights(
   const predictions = await db.prediction.findMany({
     where: {
       accepted: true,
-      outcome: { not: null },
+      outcome: { not: Prisma.JsonNull },
       computedAt: {
         gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000), // Last 90 days
       },

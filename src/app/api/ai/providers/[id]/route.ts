@@ -12,11 +12,11 @@ type ProviderName = (typeof VALID_PROVIDERS)[number];
 // PUT /api/ai/providers/[id] — update provider name, model, or rotate API key
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { db } = await requirePermission("settings:ai");
-    const { id } = params;
+    const { id } = await params;
 
     const existing = await db.aIProvider.findFirst({ where: { id } });
     if (!existing) {
@@ -100,11 +100,11 @@ export async function PUT(
 // DELETE /api/ai/providers/[id] — remove a provider configuration
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { db } = await requirePermission("settings:ai");
-    const { id } = params;
+    const { id } = await params;
 
     const existing = await db.aIProvider.findFirst({ where: { id } });
     if (!existing) {

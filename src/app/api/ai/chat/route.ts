@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     // Persist the incoming customer message before processing
     await db.message.create({
       data: {
+        tenantId: user.tenantId,
         conversationId,
         senderType: "CUSTOMER",
         content: message.trim(),

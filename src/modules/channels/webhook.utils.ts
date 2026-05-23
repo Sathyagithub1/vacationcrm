@@ -7,7 +7,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { tenantPrisma } from "@/lib/prisma";
-import type { ConversationChannel, WebhookLogStatus } from "@prisma/client";
+import type { ConversationChannel, WebhookLogStatus, Prisma } from "@prisma/client";
 
 /**
  * Resolves and verifies a tenant from a raw `tenantId` string.
@@ -53,7 +53,7 @@ export async function logWebhook(params: {
         tenantId: params.tenantId ?? null,
         channel: params.channel,
         eventType: params.eventType ?? null,
-        payload: params.payload,
+        payload: params.payload as Prisma.InputJsonValue,
         status: params.status,
         errorMessage: params.errorMessage ?? null,
         processingTimeMs: params.processingTimeMs ?? null,

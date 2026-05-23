@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { ActivityTimeline, type Activity } from "@/components/leads/activity-timeline";
 import { LeadDetailPanel } from "@/components/leads/lead-detail-panel";
+import { AiInsightsPanel } from "@/components/leads/ai-insights-panel";
 
 interface Customer {
   id: string;
@@ -470,7 +471,10 @@ export default function LeadDetailPage() {
         </div>
 
         {/* Right column (1/3) */}
-        <div>
+        <div className="space-y-6">
+          {/* AI Insights */}
+          <AiInsightsPanel leadId={leadId} />
+
           <LeadDetailPanel
             lead={lead}
             stages={stages}

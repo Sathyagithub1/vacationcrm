@@ -93,46 +93,53 @@ export async function POST(request: Request) {
         ? encrypt(webhookSecret)
         : null;
 
-    // Upsert — each tenant can only have one config per channel
-    const channelConfig = await db.channelConfig.upsert({
-      where: {
-        // tenantId injected by tenantPrisma; unique on (tenantId, channel)
-        // Prisma upsert where must use the unique key fields
-        tenantId_channel: {
+    // Check whether a config for this channel already exists (tenantPrisma scopes by tenantId)
+    const existing = await db.channelConfig.findFirst({
+      where: { channel: channel as ValidChannel },
+    });
+
+    const SELECT = {
+      id: true,
+      channel: true,
+      config: true,
+      isActive: true,
+      verifiedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    };
+
+    let channelConfig;
+
+    if (existing) {
+      // Update the existing config
+      channelConfig = await db.channelConfig.update({
+        where: { id: existing.id },
+        data: {
+          credentials: encryptedCredentials,
+          webhookSecret: encryptedSecret ?? undefined,
+          config: (config as object) ?? undefined,
+          isActive: typeof isActive === "boolean" ? isActive : undefined,
+          verifiedAt: null, // Reset verification on credential change
+        },
+        select: SELECT,
+      });
+    } else {
+      channelConfig = await db.channelConfig.create({
+        data: {
           tenantId: user.tenantId,
           channel: channel as ValidChannel,
+          credentials: encryptedCredentials,
+          webhookSecret: encryptedSecret,
+          config: (config as object) ?? null,
+          isActive: typeof isActive === "boolean" ? isActive : false,
         },
-      },
-      create: {
-        channel: channel as ValidChannel,
-        credentials: encryptedCredentials,
-        webhookSecret: encryptedSecret,
-        config: (config as object) ?? null,
-        isActive: typeof isActive === "boolean" ? isActive : false,
-      },
-      update: {
-        credentials: encryptedCredentials,
-        webhookSecret: encryptedSecret ?? undefined,
-        config: (config as object) ?? undefined,
-        isActive: typeof isActive === "boolean" ? isActive : undefined,
-        verifiedAt: null, // Reset verification on credential change
-      },
-      select: {
-        id: true,
-        channel: true,
-        credentials: false,
-        webhookSecret: false,
-        config: true,
-        isActive: true,
-        verifiedAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+        select: SELECT,
+      });
+    }
 
     return NextResponse.json(
       { config: { ...channelConfig, credentialsSet: true } },
-      { status: 201 }
+      { status: existing ? 200 : 201 }
     );
   } catch (error) {
     if (error instanceof Error) {

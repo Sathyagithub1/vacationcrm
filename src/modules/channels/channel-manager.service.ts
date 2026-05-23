@@ -46,6 +46,7 @@ export async function handleInboundMessage(
   if (!conversation) {
     conversation = await db.conversation.create({
       data: {
+        tenantId,
         customerId: customer.id,
         channel,
         status: "ACTIVE",
@@ -59,6 +60,7 @@ export async function handleInboundMessage(
 
   await db.message.create({
     data: {
+      tenantId,
       conversationId: conversation.id,
       senderType: "CUSTOMER",
       senderId: customer.id,
@@ -106,6 +108,7 @@ export async function handleInboundMessage(
   if (conversation.assignedAgentId) {
     await db.notification.create({
       data: {
+        tenantId,
         userId: conversation.assignedAgentId,
         type: "NEW_MESSAGE",
         title: "New message",

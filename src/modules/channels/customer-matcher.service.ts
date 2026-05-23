@@ -66,40 +66,64 @@ export async function matchOrCreateCustomer(
   }
 
   if (matchedCustomer) {
-    // Register this channel identity against the existing customer
-    await db.customerChannel.create({
-      data: {
-        customerId: matchedCustomer.id,
-        channel,
-        externalId,
-        displayName: senderName ?? null,
-        lastSeenAt: new Date(),
-      },
-    });
-    return matchedCustomer;
-  }
-
-  // Step 4: Create new customer + link channel
-  const displayName = senderName?.trim() || `${channel} User`;
-  const mobileFallback = digitsOnly.length >= 7 ? `+${digitsOnly}` : externalId;
-  const emailFallback = externalId.includes("@") ? externalId.toLowerCase() : null;
-
-  const newCustomer = await db.customer.create({
-    data: {
-      name: displayName,
-      mobile: mobileFallback,
-      email: emailFallback,
-      channels: {
-        create: {
+    // Register this channel identity against the existing customer.
+    // (tenantId, channel, externalId) is unique — under concurrent webhook delivery
+    // a second create can race; on P2002 we re-resolve via the existing row.
+    try {
+      await db.customerChannel.create({
+        data: {
+          tenantId,
+          customerId: matchedCustomer.id,
           channel,
           externalId,
           displayName: senderName ?? null,
           lastSeenAt: new Date(),
-          // tenantId injected by tenantPrisma extension
+        },
+      });
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code !== "P2002") throw err;
+    }
+    return matchedCustomer;
+  }
+
+  // Step 4: Create new customer + link channel.
+  // Concurrent webhook delivery for the same (channel, externalId) can race here too.
+  // The nested customerChannel.create will trigger P2002; on collision we re-run
+  // step 1 and return that customer (the loser's orphan Customer row is acceptable —
+  // it'll be cleaned up by the dedup worker, and we never link it to anything).
+  const displayName = senderName?.trim() || `${channel} User`;
+  const mobileFallback = digitsOnly.length >= 7 ? `+${digitsOnly}` : externalId;
+  const emailFallback = externalId.includes("@") ? externalId.toLowerCase() : null;
+
+  try {
+    const newCustomer = await db.customer.create({
+      data: {
+        tenantId,
+        name: displayName,
+        mobile: mobileFallback,
+        email: emailFallback,
+        channels: {
+          create: {
+            tenantId,
+            channel,
+            externalId,
+            displayName: senderName ?? null,
+            lastSeenAt: new Date(),
+          },
         },
       },
-    },
-  });
+    });
+    return newCustomer as MatchedCustomer;
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code;
+    if (code !== "P2002") throw err;
 
-  return newCustomer as MatchedCustomer;
+    const concurrent = await db.customerChannel.findFirst({
+      where: { channel, externalId },
+      include: { customer: true },
+    });
+    if (!concurrent) throw err;
+    return concurrent.customer as MatchedCustomer;
+  }
 }

@@ -50,10 +50,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify widget config is active
-    const widgetConfig = await db.widgetConfig.findFirst({
+    const widgetConfig = await (db as any).widgetConfig.findFirst({
       where: { departmentId: department.id, isActive: true },
       select: { id: true },
-    });
+    }) as { id: string } | null;
     if (!widgetConfig) {
       return NextResponse.json({ error: "Widget not active for this department" }, { status: 404 });
     }
@@ -67,9 +67,9 @@ export async function POST(request: NextRequest) {
 
     // Find an existing ACTIVE WEBSITE conversation for this visitor,
     // or open a new one scoped to the department's widget.
-    const customerId = visitor.customerId ?? undefined;
+    const customerId = (visitor as Record<string, unknown>).customerId as string | undefined;
 
-    let conversation = await db.conversation.findFirst({
+    const existingConversation = await (db.conversation.findFirst as Function)({
       where: {
         channel: "WEBSITE",
         status: { in: ["ACTIVE", "HUMAN_TAKEOVER"] },
@@ -77,19 +77,17 @@ export async function POST(request: NextRequest) {
       },
       orderBy: { startedAt: "desc" },
       select: { id: true },
-    });
+    }) as { id: string } | null;
 
-    if (!conversation) {
-      conversation = await (db.conversation.create as Function)({
-        data: {
-          channel: "WEBSITE",
-          status: "ACTIVE",
-          ...(customerId ? { customerId } : {}),
-          startedAt: new Date(),
-        },
-        select: { id: true },
-      });
-    }
+    const conversation = existingConversation ?? (await (db.conversation.create as Function)({
+      data: {
+        channel: "WEBSITE",
+        status: "ACTIVE",
+        ...(customerId ? { customerId } : {}),
+        startedAt: new Date(),
+      },
+      select: { id: true },
+    }) as { id: string });
 
     const visitorToken = createVisitorToken(tenant.id, visitorId.trim());
 

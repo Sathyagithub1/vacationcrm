@@ -1,20 +1,20 @@
 /**
- * Chatbot service — orchestrates the full AI response cycle for an inbound
- * channel message. Called by channel-manager after routing decides "ai".
+ * Chatbot service — thin orchestration layer called by channel-manager
+ * when an inbound message is routed to AI.
  *
- * Responsibilities:
- *  1. Load the active AI provider for the tenant.
- *  2. Build conversation history as chat messages.
- *  3. Retrieve the relevant system prompt + knowledge-base context.
- *  4. Call the AI provider.
- *  5. Persist the AI reply as a Message (senderType BOT).
- *  6. Dispatch the reply outbound via the message dispatcher.
- *  7. Record AI conversation stats.
+ * Delegates to the existing processAIMessage service which handles:
+ *  - Provider selection, system prompt building, knowledge context
+ *  - Agentic tool-call loop
+ *  - Persisting the bot reply as a Message record
+ *  - Publishing WebSocket events
+ *  - Updating AIConversation token/cost counters
+ *
+ * After the AI reply is generated it dispatches the reply outbound via
+ * the message dispatcher so the customer receives it on their channel.
  */
 
 import { tenantPrisma } from "@/lib/prisma";
-import { createProvider } from "./index";
-import { buildSystemPrompt } from "@/modules/ai/context-builder.service";
+import { processAIMessage } from "@/modules/ai/ai-chat.service";
 
 interface HandleAIResponseParams {
   tenantId: string;
@@ -27,104 +27,64 @@ export async function handleAIResponse(params: HandleAIResponseParams): Promise<
   const { tenantId, conversationId, customerId, userMessage } = params;
   const db = tenantPrisma(tenantId);
 
-  // Load active AI provider
-  const providerRecord = await db.aIProvider.findFirst({
-    where: { isActive: true },
-  });
-  if (!providerRecord) return; // No provider — nothing to do
-
-  // Load recent conversation messages for context (last 20)
-  const recentMessages = await db.message.findMany({
-    where: { conversationId },
-    orderBy: { createdAt: "asc" },
-    take: 20,
-  });
-
-  // Build history
-  const history = recentMessages
-    .filter((m) => m.senderType !== "BOT" || m.content.trim())
-    .map((m) => ({
-      role: m.senderType === "CUSTOMER" ? ("user" as const) : ("assistant" as const),
-      content: m.content,
-    }));
-
-  // Find conversation to get channel + lead info
+  // Resolve the department for system prompt building
+  // Prefer the department from the lead linked to this conversation;
+  // fall back to the first department configured for this tenant.
   const conversation = await db.conversation.findFirst({
     where: { id: conversationId },
     include: { lead: { select: { departmentId: true } } },
   });
+
   if (!conversation) return;
 
-  const departmentId = conversation.lead?.departmentId ?? null;
+  let departmentId: string | null = conversation.lead?.departmentId ?? null;
 
-  // Build system prompt
-  let systemPrompt =
-    "You are a helpful travel customer service assistant. Be concise, friendly, and professional.";
-  if (departmentId) {
-    try {
-      systemPrompt = await buildSystemPrompt(db, departmentId, tenantId);
-    } catch {
-      // Fall back to generic prompt
-    }
+  if (!departmentId) {
+    const dept = await db.department.findFirst({
+      where: { isActive: true },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+    departmentId = dept?.id ?? null;
   }
 
-  // Create provider and generate response
-  let aiReplyContent = "";
-  let totalTokens = 0;
-
-  try {
-    const provider = createProvider(
-      providerRecord.provider,
-      providerRecord.apiKey,
-      providerRecord.modelName
-    );
-
-    const response = await provider.chat({
-      systemPrompt,
-      messages: history,
-      temperature: 0.7,
-      maxTokens: 500,
-    });
-
-    aiReplyContent = response.content ?? "";
-    totalTokens = response.usage?.totalTokens ?? 0;
-  } catch (err) {
-    console.error("[ChatbotService] AI provider error:", err);
+  if (!departmentId) {
+    console.warn("[ChatbotService] No department found for tenant", tenantId, "— skipping AI response");
     return;
   }
 
-  if (!aiReplyContent.trim()) return;
+  let aiResponse: string;
+  let handoff: boolean;
 
-  // Persist the AI reply
-  const botMessage = await db.message.create({
-    data: {
-      conversationId,
-      senderType: "BOT",
-      senderId: null,
-      content: aiReplyContent,
-      messageType: "TEXT",
-    },
-  });
-
-  // Record AI conversation log
-  const aiConv = await db.aIConversation.create({
-    data: {
-      conversationId,
-      providerUsed: providerRecord.provider,
-      modelUsed: providerRecord.modelName,
-      totalTokens,
-      totalCost: 0,
-    },
-  });
-
-  // Dispatch the bot reply outbound through the message dispatcher
   try {
-    const { dispatchMessage } = await import("@/modules/channels/message-dispatcher.service");
-    await dispatchMessage(tenantId, conversationId, aiReplyContent, "TEXT");
+    const result = await processAIMessage({
+      db,
+      tenantId,
+      conversationId,
+      departmentId,
+      customerMessage: userMessage,
+      customerId,
+    });
+    aiResponse = result.response;
+    handoff = result.handoff;
   } catch (err) {
-    console.error("[ChatbotService] dispatch error:", err instanceof Error ? err.message : err);
+    console.error("[ChatbotService] processAIMessage error:", err instanceof Error ? err.message : err);
+    return;
   }
 
-  void aiConv; // referenced to satisfy linter
-  void botMessage;
+  if (!aiResponse.trim()) return;
+
+  // Dispatch the bot reply outbound to the customer's channel
+  // Only dispatch if the conversation was not handed off (human agents reply manually)
+  if (!handoff) {
+    try {
+      const { dispatchMessage } = await import("@/modules/channels/message-dispatcher.service");
+      await dispatchMessage(tenantId, conversationId, aiResponse, "TEXT");
+    } catch (err) {
+      console.error(
+        "[ChatbotService] dispatchMessage error:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 }

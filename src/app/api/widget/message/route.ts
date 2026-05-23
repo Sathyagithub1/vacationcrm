@@ -130,11 +130,11 @@ export async function POST(request: NextRequest) {
     // Resolve department from widget config linked to this conversation's channel
     // We look up any active widget config for this tenant to find the departmentId
     // for context building (knowledge base + system prompt).
-    const widgetConfig = await db.widgetConfig.findFirst({
+    const widgetConfig = await (db as any).widgetConfig.findFirst({
       where: { isActive: true },
       select: { departmentId: true },
       orderBy: { createdAt: "asc" },
-    });
+    }) as { departmentId: string } | null;
     const departmentId = widgetConfig?.departmentId ?? "";
 
     const [systemPrompt, knowledgeContext, conversationHistory] = await Promise.all([

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,21 @@ interface InviteInfo {
 }
 
 export default function AcceptInvitePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-col items-center py-8">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-500 border-t-transparent" />
+          <p className="mt-3 text-sm text-gray-500">Loading...</p>
+        </div>
+      }
+    >
+      <AcceptInviteForm />
+    </Suspense>
+  );
+}
+
+function AcceptInviteForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const token = searchParams.get("token");
