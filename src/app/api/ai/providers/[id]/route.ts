@@ -6,7 +6,7 @@ import {
 } from "@/modules/auth/tenant.middleware";
 import { encrypt } from "@/lib/encryption";
 
-const VALID_PROVIDERS = ["CLAUDE", "OPENAI", "GEMINI"] as const;
+const VALID_PROVIDERS = ["CLAUDE", "OPENAI", "GEMINI", "CUSTOM"] as const;
 type ProviderName = (typeof VALID_PROVIDERS)[number];
 
 // PUT /api/ai/providers/[id] — update provider name, model, or rotate API key

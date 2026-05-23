@@ -1,10 +1,9 @@
 /**
- * POST /api/webhooks/whatsapp?tenantId=<id>
- * GET  /api/webhooks/whatsapp?tenantId=<id>&hub.verify_token=...
+ * POST /api/webhooks/instagram?tenantId=<id>
+ * GET  /api/webhooks/instagram?tenantId=<id>&hub.verify_token=...
  *
- * Public endpoint — no NextAuth session required.
- * Tenant is identified via the `tenantId` query param.
- * Signature verified using the HMAC-SHA256 method (x-hub-signature-256).
+ * Public endpoint — Instagram Graph API webhook.
+ * Signature verified using x-hub-signature-256 HMAC.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -18,9 +17,8 @@ import {
 } from "@/modules/channels/webhook.utils";
 import { createChannelAdapter } from "@/modules/channels/adapters/index";
 import { handleInboundMessage } from "@/modules/channels/channel-manager.service";
-import { decrypt } from "@/lib/encryption";
 
-const CHANNEL = "WHATSAPP" as const;
+const CHANNEL = "INSTAGRAM" as const;
 
 // ── GET — Meta webhook verification ──────────────────────────────────────────
 export async function GET(request: NextRequest) {
@@ -44,6 +42,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Channel not configured" }, { status: 404 });
   }
 
+  const { decrypt } = await import("@/lib/encryption");
   const credentials = JSON.parse(decrypt(config.credentials)) as { verifyToken?: string };
 
   if (!credentials.verifyToken || credentials.verifyToken !== token) {
@@ -82,7 +81,6 @@ export async function POST(request: NextRequest) {
       status: "IGNORED",
       errorMessage: "Tenant not found",
     });
-    // Return 200 to Meta so it stops retrying unknown tenants
     return NextResponse.json({ status: "ignored" });
   }
 
@@ -98,7 +96,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: "ignored" });
   }
 
-  // Verify HMAC signature
   const headers = headersToRecord(request.headers);
   const adapter = createChannelAdapter(CHANNEL, config.credentials);
 
@@ -114,11 +111,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  // Parse and route inbound message
   const inbound = adapter.parseInbound(payload);
 
   if (!inbound) {
-    // Could be a status update or unsupported event type
     await logWebhook({
       tenantId: tenant.id,
       channel: CHANNEL,
@@ -142,7 +137,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error("[webhook/whatsapp] handleInboundMessage error:", errMsg);
+    console.error("[webhook/instagram] handleInboundMessage error:", errMsg);
     await logWebhook({
       tenantId: tenant.id,
       channel: CHANNEL,
@@ -152,7 +147,6 @@ export async function POST(request: NextRequest) {
       errorMessage: errMsg,
       processingTimeMs: Date.now() - start,
     });
-    // Still return 200 — Meta will retry on non-2xx which would create duplicates
     return NextResponse.json({ status: "error", error: errMsg });
   }
 

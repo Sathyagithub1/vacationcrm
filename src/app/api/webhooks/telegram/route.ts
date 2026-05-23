@@ -1,10 +1,9 @@
 /**
- * POST /api/webhooks/whatsapp?tenantId=<id>
- * GET  /api/webhooks/whatsapp?tenantId=<id>&hub.verify_token=...
+ * POST /api/webhooks/telegram?tenantId=<id>
  *
- * Public endpoint — no NextAuth session required.
- * Tenant is identified via the `tenantId` query param.
- * Signature verified using the HMAC-SHA256 method (x-hub-signature-256).
+ * Public endpoint — Telegram Bot API webhook.
+ * Telegram sends JSON. Verification uses X-Telegram-Bot-Api-Secret-Token header
+ * which matches the secret_token set during setWebhook.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -18,42 +17,9 @@ import {
 } from "@/modules/channels/webhook.utils";
 import { createChannelAdapter } from "@/modules/channels/adapters/index";
 import { handleInboundMessage } from "@/modules/channels/channel-manager.service";
-import { decrypt } from "@/lib/encryption";
 
-const CHANNEL = "WHATSAPP" as const;
+const CHANNEL = "TELEGRAM" as const;
 
-// ── GET — Meta webhook verification ──────────────────────────────────────────
-export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
-  const tenantId = searchParams.get("tenantId");
-  const mode = searchParams.get("hub.mode");
-  const token = searchParams.get("hub.verify_token");
-  const challenge = searchParams.get("hub.challenge");
-
-  if (mode !== "subscribe" || !challenge) {
-    return NextResponse.json({ error: "Invalid verification request" }, { status: 400 });
-  }
-
-  const tenant = await resolveTenant(tenantId);
-  if (!tenant) {
-    return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
-  }
-
-  const config = await loadChannelConfig(tenant.id, CHANNEL);
-  if (!config) {
-    return NextResponse.json({ error: "Channel not configured" }, { status: 404 });
-  }
-
-  const credentials = JSON.parse(decrypt(config.credentials)) as { verifyToken?: string };
-
-  if (!credentials.verifyToken || credentials.verifyToken !== token) {
-    return NextResponse.json({ error: "Verification token mismatch" }, { status: 403 });
-  }
-
-  return new NextResponse(challenge, { status: 200 });
-}
-
-// ── POST — Inbound messages ───────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   const start = Date.now();
   const { searchParams } = request.nextUrl;
@@ -82,7 +48,6 @@ export async function POST(request: NextRequest) {
       status: "IGNORED",
       errorMessage: "Tenant not found",
     });
-    // Return 200 to Meta so it stops retrying unknown tenants
     return NextResponse.json({ status: "ignored" });
   }
 
@@ -98,7 +63,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: "ignored" });
   }
 
-  // Verify HMAC signature
   const headers = headersToRecord(request.headers);
   const adapter = createChannelAdapter(CHANNEL, config.credentials);
 
@@ -111,18 +75,17 @@ export async function POST(request: NextRequest) {
       errorMessage: "Signature verification failed",
       processingTimeMs: Date.now() - start,
     });
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Parse and route inbound message
   const inbound = adapter.parseInbound(payload);
 
   if (!inbound) {
-    // Could be a status update or unsupported event type
+    // Could be a callback_query, edited_message, etc.
     await logWebhook({
       tenantId: tenant.id,
       channel: CHANNEL,
-      eventType: "status_update",
+      eventType: "non_message_update",
       payload,
       status: "IGNORED",
       processingTimeMs: Date.now() - start,
@@ -142,7 +105,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error("[webhook/whatsapp] handleInboundMessage error:", errMsg);
+    console.error("[webhook/telegram] handleInboundMessage error:", errMsg);
     await logWebhook({
       tenantId: tenant.id,
       channel: CHANNEL,
@@ -152,8 +115,6 @@ export async function POST(request: NextRequest) {
       errorMessage: errMsg,
       processingTimeMs: Date.now() - start,
     });
-    // Still return 200 — Meta will retry on non-2xx which would create duplicates
-    return NextResponse.json({ status: "error", error: errMsg });
   }
 
   return NextResponse.json({ status: "ok" });

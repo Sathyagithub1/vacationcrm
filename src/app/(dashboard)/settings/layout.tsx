@@ -12,6 +12,11 @@ import {
   Bell,
   Plug,
   ScrollText,
+  Brain,
+  BookOpen,
+  Radio,
+  MessageSquare,
+  BarChart3,
 } from "lucide-react";
 
 const settingsTabs = [
@@ -21,6 +26,11 @@ const settingsTabs = [
   { label: "Pipeline", href: "/settings/pipeline", icon: GitBranch },
   { label: "Notifications", href: "/settings/notifications", icon: Bell },
   { label: "Integrations", href: "/settings/integrations", icon: Plug },
+  { label: "AI Config", href: "/settings/ai", icon: Brain },
+  { label: "Knowledge Base", href: "/settings/knowledge-base", icon: BookOpen },
+  { label: "Channels", href: "/settings/channels", icon: Radio },
+  { label: "Widget", href: "/settings/widget", icon: MessageSquare },
+  { label: "Analytics", href: "/settings/analytics", icon: BarChart3 },
   { label: "Audit Log", href: "/settings/audit", icon: ScrollText },
 ];
 
@@ -39,7 +49,7 @@ export default function SettingsLayout({
       </div>
 
       <div className="border-b border-gray-200">
-        <nav className="-mb-px flex gap-6" role="tablist">
+        <nav className="-mb-px flex gap-6 overflow-x-auto" role="tablist">
           {settingsTabs.map((tab) => {
             const isActive = pathname === tab.href || pathname.startsWith(tab.href + "/");
             const Icon = tab.icon;

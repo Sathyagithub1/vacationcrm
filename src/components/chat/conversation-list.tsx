@@ -130,10 +130,15 @@ export function ConversationList({
   onSelect,
   statusFilter,
   onStatusFilterChange,
+  channelFilter = "",
+  onChannelFilterChange,
 }: ConversationListProps) {
   const [search, setSearch] = React.useState("");
 
   const filtered = conversations.filter((c) => {
+    // Channel filter
+    if (channelFilter && c.channel !== channelFilter) return false;
+    // Search filter
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -181,6 +186,20 @@ export function ConversationList({
             </button>
           ))}
         </div>
+        {/* Channel filter */}
+        {onChannelFilterChange && (
+          <select
+            value={channelFilter}
+            onChange={(e) => onChannelFilterChange(e.target.value)}
+            className="mt-2 h-7 w-full rounded-md border border-gray-300 bg-white px-2 text-xs focus:border-primary-400 focus:outline-none focus:ring-1 focus:ring-primary-200"
+            aria-label="Filter by channel"
+          >
+            <option value="">All Channels</option>
+            {Object.entries(CHANNEL_CONFIG).map(([key, cfg]) => (
+              <option key={key} value={key}>{cfg.label}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* List */}
@@ -202,19 +221,27 @@ export function ConversationList({
                   selectedId === conv.id && "bg-primary-50"
                 )}
               >
-                <Avatar name={conv.lead.customer.name} size="sm" />
+                <div className="relative shrink-0">
+                  <Avatar name={conv.lead.customer.name} size="sm" />
+                  {conv.channel && (
+                    <span className="absolute -bottom-0.5 -right-0.5">
+                      <ChannelIcon channel={conv.channel} />
+                    </span>
+                  )}
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between">
                     <span className="truncate text-sm font-medium text-gray-900">
                       {conv.lead.customer.name}
                     </span>
-                    <Badge
-                      variant={statusVariant[conv.status] || "default"}
-                      size="sm"
-                      className="ml-1 shrink-0"
-                    >
-                      {conv.status === "ACTIVE" ? "Active" : conv.status === "CLOSED" ? "Closed" : conv.status}
-                    </Badge>
+                    <div className="ml-1 flex shrink-0 items-center gap-1">
+                      <Badge
+                        variant={statusVariant[conv.status] || "default"}
+                        size="sm"
+                      >
+                        {conv.status === "ACTIVE" ? "Active" : conv.status === "CLOSED" ? "Closed" : conv.status === "HUMAN_TAKEOVER" ? "Agent" : conv.status}
+                      </Badge>
+                    </div>
                   </div>
                   {lastMsg && (
                     <p className="mt-0.5 truncate text-xs text-gray-500">

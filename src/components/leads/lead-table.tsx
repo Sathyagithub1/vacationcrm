@@ -2,10 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Phone, Calendar, Download } from "lucide-react";
+import { Phone, Calendar, Download, ArrowUpDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ScoreBadge } from "@/components/leads/score-badge";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableHeader,
@@ -39,6 +41,7 @@ export interface LeadRow {
   isFutureInterest: boolean;
   createdAt: string;
   stageId: string;
+  score?: number | null;
   customer: { id: string; name: string; mobile: string; email: string | null };
   department: { id: string; name: string; color: string | null };
   stage: { id: string; name: string; color: string | null; position: number };
@@ -54,6 +57,8 @@ interface LeadTableProps {
   onBulkStageChange?: () => void;
   onExportCsv?: () => void;
   showBulkActions?: boolean;
+  sortByScore?: "asc" | "desc" | null;
+  onSortByScore?: () => void;
 }
 
 export function LeadTable({
@@ -65,6 +70,8 @@ export function LeadTable({
   onBulkStageChange,
   onExportCsv,
   showBulkActions,
+  sortByScore,
+  onSortByScore,
 }: LeadTableProps) {
   const router = useRouter();
   const allSelected = leads.length > 0 && selectedIds.size === leads.length;
@@ -117,6 +124,20 @@ export function LeadTable({
               />
             </TableHead>
             <TableHead>Customer</TableHead>
+            <TableHead>
+              <button
+                onClick={onSortByScore}
+                className="inline-flex items-center gap-1 hover:text-gray-900"
+                title="Sort by score"
+                type="button"
+              >
+                Score
+                <ArrowUpDown className={cn(
+                  "h-3.5 w-3.5",
+                  sortByScore ? "text-primary-500" : "text-gray-400"
+                )} />
+              </button>
+            </TableHead>
             <TableHead>Mobile</TableHead>
             <TableHead>Department</TableHead>
             <TableHead>Stage</TableHead>
@@ -130,7 +151,7 @@ export function LeadTable({
         <TableBody>
           {leads.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={10} className="py-12 text-center text-gray-500">
+              <TableCell colSpan={11} className="py-12 text-center text-gray-500">
                 No leads found.
               </TableCell>
             </TableRow>
@@ -158,6 +179,9 @@ export function LeadTable({
                     <Avatar name={lead.customer.name} size="sm" />
                     <span className="font-medium text-gray-900">{lead.customer.name}</span>
                   </div>
+                </TableCell>
+                <TableCell>
+                  <ScoreBadge score={lead.score} size="sm" />
                 </TableCell>
                 <TableCell>
                   <span className="flex items-center gap-1.5 text-sm">

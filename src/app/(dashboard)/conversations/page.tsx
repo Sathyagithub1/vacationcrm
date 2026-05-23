@@ -50,6 +50,8 @@ export default function ConversationsPage() {
   const [loadingList, setLoadingList] = React.useState(true);
   const [statusFilter, setStatusFilter] = React.useState("");
 
+  const [channelFilter, setChannelFilter] = React.useState("");
+
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [detail, setDetail] = React.useState<ConversationDetail | null>(null);
   const [messages, setMessages] = React.useState<MessageData[]>([]);
@@ -74,6 +76,7 @@ export default function ConversationsPage() {
         messageType: (msg.messageType as string) || "TEXT",
         fileUrl: (msg.fileUrl as string) || null,
         createdAt: (msg.timestamp as string) || new Date().toISOString(),
+        delivery: msg.delivery ? { status: (msg.delivery as { status: string }).status as "sent" | "delivered" | "read" } : null,
       };
       setMessages((prev) => {
         // Avoid duplicates
@@ -277,6 +280,8 @@ export default function ConversationsPage() {
           onSelect={setSelectedId}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
+          channelFilter={channelFilter}
+          onChannelFilterChange={setChannelFilter}
         />
       </div>
 

@@ -15,6 +15,7 @@ import { LeadForm } from "@/components/leads/lead-form";
 import { PipelineBoard } from "@/components/leads/pipeline-board";
 import type { LeadCardData } from "@/components/leads/lead-card";
 import { cn } from "@/lib/utils";
+import { SCORE_TIER_OPTIONS, getScoreTier } from "@/components/leads/score-badge";
 
 interface Department {
   id: string;
@@ -55,6 +56,8 @@ export default function LeadsPage() {
   const [filterStage, setFilterStage] = React.useState("");
   const [filterSource, setFilterSource] = React.useState("");
   const [filterPriority, setFilterPriority] = React.useState("");
+  const [filterTier, setFilterTier] = React.useState("");
+  const [sortByScore, setSortByScore] = React.useState<"asc" | "desc" | null>(null);
 
   // Reference data
   const [departments, setDepartments] = React.useState<Department[]>([]);
@@ -129,7 +132,24 @@ export default function LeadsPage() {
       const res = await fetch(`/api/leads?${params}`);
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
-      setLeads(data.leads);
+
+      // Fetch scores for all leads in parallel
+      const leadsWithScores = await Promise.all(
+        (data.leads as LeadRow[]).map(async (lead: LeadRow) => {
+          try {
+            const scoreRes = await fetch(`/api/leads/${lead.id}/score`);
+            if (scoreRes.ok) {
+              const scoreData = await scoreRes.json();
+              return { ...lead, score: scoreData.score?.total ?? null };
+            }
+          } catch {
+            // Score fetch non-critical
+          }
+          return { ...lead, score: null };
+        })
+      );
+
+      setLeads(leadsWithScores);
       setTotal(data.total);
       setTotalPages(data.totalPages);
     } catch {
@@ -253,6 +273,38 @@ export default function LeadsPage() {
     { label: "VIP", value: "VIP" },
   ];
 
+  // Apply client-side tier filter and score sort
+  const displayLeads = React.useMemo(() => {
+    let result = [...leads];
+
+    // Tier filter
+    if (filterTier) {
+      result = result.filter((l) => {
+        if (l.score == null) return filterTier === "COLD"; // null scores treated as COLD
+        return getScoreTier(l.score) === filterTier;
+      });
+    }
+
+    // Score sort
+    if (sortByScore) {
+      result.sort((a, b) => {
+        const sa = a.score ?? 0;
+        const sb = b.score ?? 0;
+        return sortByScore === "asc" ? sa - sb : sb - sa;
+      });
+    }
+
+    return result;
+  }, [leads, filterTier, sortByScore]);
+
+  function handleSortByScore() {
+    setSortByScore((prev) => {
+      if (prev === null) return "desc";
+      if (prev === "desc") return "asc";
+      return null;
+    });
+  }
+
   // Convert leads to card data for pipeline board
   const boardLeads: (LeadCardData & { stageId: string })[] = leads.map((l) => ({
     id: l.id,
@@ -330,6 +382,17 @@ export default function LeadsPage() {
           ))}
         </select>
 
+        <select
+          value={filterTier}
+          onChange={(e) => { setFilterTier(e.target.value); setPage(1); }}
+          className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
+          aria-label="Filter by lead score tier"
+        >
+          {SCORE_TIER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+
         {/* View toggle */}
         <div className="ml-auto flex rounded-md border border-gray-300">
           <button
@@ -367,12 +430,14 @@ export default function LeadsPage() {
       ) : viewMode === "table" ? (
         <div className="rounded-lg border border-gray-200 bg-white">
           <LeadTable
-            leads={leads}
+            leads={displayLeads}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onToggleSelectAll={toggleSelectAll}
             onExportCsv={handleExportCsv}
             showBulkActions
+            sortByScore={sortByScore}
+            onSortByScore={handleSortByScore}
           />
 
           {totalPages > 1 && (

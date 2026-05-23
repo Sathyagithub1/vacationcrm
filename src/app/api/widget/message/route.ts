@@ -51,10 +51,10 @@ export async function POST(request: NextRequest) {
     const trimmedMessage = message.trim();
 
     // ── Verify conversation exists and belongs to this tenant ─────────────────
-    const conversation = await db.conversation.findFirst({
+    const conversation = await (db.conversation.findFirst as Function)({
       where: { id: conversationId },
       select: { id: true, status: true, customerId: true },
-    });
+    }) as { id: string; status: string; customerId: string | null } | null;
     if (!conversation) {
       return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }

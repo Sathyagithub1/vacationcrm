@@ -40,6 +40,11 @@ const SETTINGS_PERMISSIONS: Permission[] = [
   "settings:notifications",
   "settings:integrations",
   "settings:billing",
+  "settings:ai",
+  "settings:knowledge-base",
+  "settings:channels",
+  "settings:widget",
+  "settings:analytics",
 ];
 
 function canViewItem(
