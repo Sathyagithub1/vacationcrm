@@ -1,0 +1,28 @@
+# Production override for gmc-vps deployment.
+# Differences from base docker-compose.yml:
+#   - nginx service removed (host nginx reverse-proxies into the app container)
+#   - postgres + redis port mappings removed (internal docker network only)
+#   - app port mapped to 127.0.0.1:3010 (loopback only — host nginx proxies)
+#   - ws-server mapped to 127.0.0.1:3011 (loopback only)
+#   - no public exposure of any service except via host nginx
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+services:
+  app:
+    ports: !override
+      - "127.0.0.1:3010:3000"
+
+  ws-server:
+    ports: !override
+      - "127.0.0.1:3011:3001"
+
+  postgres:
+    ports: !override []
+
+  redis:
+    ports: !override []
+
+  nginx:
+    profiles:
+      - disabled
