@@ -48,8 +48,13 @@ export default function SettingsLayout({
         <p className="mt-0.5 text-xs text-gray-500">Manage your CRM configuration</p>
       </div>
 
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex gap-6 overflow-x-auto" role="tablist">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        {/* Vertical settings nav — fixed-width sidebar on desktop, horizontal scroll on mobile */}
+        <nav
+          role="tablist"
+          aria-label="Settings sections"
+          className="flex shrink-0 gap-1 overflow-x-auto rounded-lg border border-gray-200 bg-white p-1.5 lg:w-56 lg:flex-col lg:overflow-visible"
+        >
           {settingsTabs.map((tab) => {
             const isActive = pathname === tab.href || pathname.startsWith(tab.href + "/");
             const Icon = tab.icon;
@@ -60,21 +65,22 @@ export default function SettingsLayout({
                 role="tab"
                 aria-selected={isActive}
                 className={cn(
-                  "flex items-center gap-2 whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors",
+                  "flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors",
                   isActive
-                    ? "border-primary-500 text-primary-600"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "bg-primary-50 text-primary-700"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className={cn("h-4 w-4 shrink-0", isActive && "text-primary-500")} />
                 {tab.label}
               </Link>
             );
           })}
         </nav>
-      </div>
 
-      <div>{children}</div>
+        {/* Content panel */}
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
     </div>
   );
 }
