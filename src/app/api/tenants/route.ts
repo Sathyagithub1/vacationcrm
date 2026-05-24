@@ -103,7 +103,10 @@ export async function PUT(request: Request) {
     }
 
     // Integrations — store as emailTemplateConfig JSON
-    if (smtpHost !== undefined || smsApiKey !== undefined || whatsappApiKey !== undefined) {
+    // Only update when at least one integration field is present in the request
+    if (smtpHost !== undefined || smtpPort !== undefined || smtpUser !== undefined ||
+        smtpPass !== undefined || smtpFrom !== undefined || smsApiKey !== undefined ||
+        smsApiUrl !== undefined || whatsappApiKey !== undefined || whatsappApiUrl !== undefined) {
       // Fetch existing config to merge
       const existing = await prisma.tenant.findUnique({
         where: { id: user.tenantId },
@@ -116,15 +119,28 @@ export async function PUT(request: Request) {
         ...existingConfig,
       };
 
+      // For non-secret fields, always update if provided
       if (smtpHost !== undefined) integrations.smtpHost = smtpHost;
       if (smtpPort !== undefined) integrations.smtpPort = smtpPort;
       if (smtpUser !== undefined) integrations.smtpUser = smtpUser;
-      if (smtpPass !== undefined) integrations.smtpPass = smtpPass;
       if (smtpFrom !== undefined) integrations.smtpFrom = smtpFrom;
-      if (smsApiKey !== undefined) integrations.smsApiKey = smsApiKey;
       if (smsApiUrl !== undefined) integrations.smsApiUrl = smsApiUrl;
-      if (whatsappApiKey !== undefined) integrations.whatsappApiKey = whatsappApiKey;
       if (whatsappApiUrl !== undefined) integrations.whatsappApiUrl = whatsappApiUrl;
+
+      // For secret fields, only update if provided AND not masked (preserve existing otherwise)
+      const MASK_PATTERN = /^[•]+$/;
+      if (smtpPass !== undefined && typeof smtpPass === "string" &&
+          smtpPass.length > 0 && !MASK_PATTERN.test(smtpPass)) {
+        integrations.smtpPass = smtpPass;
+      }
+      if (smsApiKey !== undefined && typeof smsApiKey === "string" &&
+          smsApiKey.length > 0 && !MASK_PATTERN.test(smsApiKey)) {
+        integrations.smsApiKey = smsApiKey;
+      }
+      if (whatsappApiKey !== undefined && typeof whatsappApiKey === "string" &&
+          whatsappApiKey.length > 0 && !MASK_PATTERN.test(whatsappApiKey)) {
+        integrations.whatsappApiKey = whatsappApiKey;
+      }
 
       updateData.emailTemplateConfig = integrations;
     }

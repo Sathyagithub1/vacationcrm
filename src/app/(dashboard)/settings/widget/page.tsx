@@ -34,8 +34,8 @@ interface WidgetConfig {
   departmentName?: string;
   welcomeMessage: string;
   quickActions: QuickAction[];
-  position: "bottom-right" | "bottom-left";
-  autoOpenDelay: number;
+  position: "BOTTOM_RIGHT" | "BOTTOM_LEFT";
+  autoOpenDelayMs: number;
   maxConcurrentVisitors: number;
   offlineMessage: string;
   businessHours: BusinessHour[];
@@ -58,8 +58,8 @@ const defaultBusinessHours: BusinessHour[] = DAYS.map((day) => ({
 const defaultConfig: Omit<WidgetConfig, "departmentId"> = {
   welcomeMessage: "Hi there! How can we help you today?",
   quickActions: [],
-  position: "bottom-right",
-  autoOpenDelay: 0,
+  position: "BOTTOM_RIGHT",
+  autoOpenDelayMs: 0,
   maxConcurrentVisitors: 50,
   offlineMessage: "We are currently offline. Please leave a message and we will get back to you.",
   businessHours: defaultBusinessHours,
@@ -333,9 +333,9 @@ export default function WidgetSettingsPage() {
                 <div className="flex rounded-md border border-gray-300">
                   <button
                     type="button"
-                    onClick={() => setForm({ ...form, position: "bottom-right" })}
+                    onClick={() => setForm({ ...form, position: "BOTTOM_RIGHT" })}
                     className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                      form.position === "bottom-right"
+                      form.position === "BOTTOM_RIGHT"
                         ? "bg-primary-500 text-white"
                         : "bg-white text-gray-600 hover:bg-gray-50"
                     } rounded-l-md`}
@@ -344,9 +344,9 @@ export default function WidgetSettingsPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setForm({ ...form, position: "bottom-left" })}
+                    onClick={() => setForm({ ...form, position: "BOTTOM_LEFT" })}
                     className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                      form.position === "bottom-left"
+                      form.position === "BOTTOM_LEFT"
                         ? "bg-primary-500 text-white"
                         : "bg-white text-gray-600 hover:bg-gray-50"
                     } rounded-r-md`}
@@ -358,16 +358,16 @@ export default function WidgetSettingsPage() {
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                  Auto-open Delay: {form.autoOpenDelay}s
+                  Auto-open Delay: {Math.round(form.autoOpenDelayMs / 1000)}s
                 </label>
                 <input
                   type="range"
                   min={0}
                   max={10}
                   step={1}
-                  value={form.autoOpenDelay}
+                  value={Math.round(form.autoOpenDelayMs / 1000)}
                   onChange={(e) =>
-                    setForm({ ...form, autoOpenDelay: parseInt(e.target.value) })
+                    setForm({ ...form, autoOpenDelayMs: parseInt(e.target.value) * 1000 })
                   }
                   className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 accent-primary-500"
                 />
@@ -471,7 +471,7 @@ export default function WidgetSettingsPage() {
               {/* Preview bubble */}
               <div
                 className={`absolute bottom-4 ${
-                  form.position === "bottom-right" ? "right-4" : "left-4"
+                  form.position === "BOTTOM_RIGHT" ? "right-4" : "left-4"
                 }`}
               >
                 <div className="mb-2 w-64 rounded-lg border border-gray-200 bg-white p-4 shadow-lg">

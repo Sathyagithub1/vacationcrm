@@ -98,8 +98,10 @@ export default function KnowledgeBasePage() {
     ...departments.map((d) => ({ label: d.name, value: d.id })),
   ];
 
+  // Note: "Global (all departments)" is excluded from the form because
+  // the knowledge-base POST API requires a non-null departmentId.
+  // When global KB support is added to the backend, restore this option.
   const deptFormOptions = [
-    { label: "Global (all departments)", value: "" },
     ...departments.map((d) => ({ label: d.name, value: d.id })),
   ];
 
@@ -110,7 +112,8 @@ export default function KnowledgeBasePage() {
   });
 
   function openAddModal() {
-    setForm(emptyForm);
+    // Default to first department since Global option is no longer available
+    setForm({ ...emptyForm, departmentId: departments[0]?.id || "" });
     setEditingId(null);
     setModalOpen(true);
   }
@@ -127,6 +130,10 @@ export default function KnowledgeBasePage() {
   }
 
   async function handleSave() {
+    if (!form.departmentId) {
+      toast("error", "Department is required");
+      return;
+    }
     if (!form.title.trim()) {
       toast("error", "Title is required");
       return;

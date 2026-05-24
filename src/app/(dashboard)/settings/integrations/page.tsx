@@ -7,6 +7,13 @@ import { useToast } from "@/components/ui/toast";
 import { Spinner } from "@/components/ui/loading";
 import { Mail, MessageSquare, Phone, Eye, EyeOff } from "lucide-react";
 
+// Sentinel value returned by the API for masked secrets
+const MASKED_SENTINEL = "••••••••";
+
+function isMasked(val: string): boolean {
+  return val === MASKED_SENTINEL || /^[•]+$/.test(val);
+}
+
 export default function IntegrationsSettingsPage() {
   const { toast } = useToast();
   const [loading, setLoading] = React.useState(true);
@@ -19,16 +26,20 @@ export default function IntegrationsSettingsPage() {
   const [smtpPass, setSmtpPass] = React.useState("");
   const [smtpFrom, setSmtpFrom] = React.useState("");
   const [showSmtpPass, setShowSmtpPass] = React.useState(false);
+  // Track which secret fields have been dirtied by the user
+  const [smtpPassDirty, setSmtpPassDirty] = React.useState(false);
 
   // SMS
   const [smsApiKey, setSmsApiKey] = React.useState("");
   const [smsApiUrl, setSmsApiUrl] = React.useState("");
   const [showSmsKey, setShowSmsKey] = React.useState(false);
+  const [smsApiKeyDirty, setSmsApiKeyDirty] = React.useState(false);
 
   // WhatsApp
   const [whatsappApiKey, setWhatsappApiKey] = React.useState("");
   const [whatsappApiUrl, setWhatsappApiUrl] = React.useState("");
   const [showWhatsappKey, setShowWhatsappKey] = React.useState(false);
+  const [whatsappApiKeyDirty, setWhatsappApiKeyDirty] = React.useState(false);
 
   // Fetch existing config
   React.useEffect(() => {
@@ -41,11 +52,15 @@ export default function IntegrationsSettingsPage() {
           setSmtpHost(config.smtpHost || "");
           setSmtpPort(config.smtpPort || "");
           setSmtpUser(config.smtpUser || "");
-          setSmtpPass(config.smtpPass || "");
+          // Masked password — display as bullets placeholder, not in field value
+          setSmtpPass(config.smtpPass ? MASKED_SENTINEL : "");
+          setSmtpPassDirty(false);
           setSmtpFrom(config.smtpFrom || "");
-          setSmsApiKey(config.smsApiKey || "");
+          setSmsApiKey(config.smsApiKey ? MASKED_SENTINEL : "");
+          setSmsApiKeyDirty(false);
           setSmsApiUrl(config.smsApiUrl || "");
-          setWhatsappApiKey(config.whatsappApiKey || "");
+          setWhatsappApiKey(config.whatsappApiKey ? MASKED_SENTINEL : "");
+          setWhatsappApiKeyDirty(false);
           setWhatsappApiUrl(config.whatsappApiUrl || "");
         }
       } catch {
@@ -60,20 +75,31 @@ export default function IntegrationsSettingsPage() {
   async function handleSave() {
     setSaving(true);
     try {
+      // Build payload: only include secret fields if they were dirtied with a real new value
+      const payload: Record<string, string> = {
+        smtpHost,
+        smtpPort,
+        smtpUser,
+        smtpFrom,
+        smsApiUrl,
+        whatsappApiUrl,
+      };
+
+      // Only send secret if user actually typed a new value (not the masked placeholder)
+      if (smtpPassDirty && smtpPass && !isMasked(smtpPass)) {
+        payload.smtpPass = smtpPass;
+      }
+      if (smsApiKeyDirty && smsApiKey && !isMasked(smsApiKey)) {
+        payload.smsApiKey = smsApiKey;
+      }
+      if (whatsappApiKeyDirty && whatsappApiKey && !isMasked(whatsappApiKey)) {
+        payload.whatsappApiKey = whatsappApiKey;
+      }
+
       const res = await fetch("/api/tenants", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          smtpHost,
-          smtpPort,
-          smtpUser,
-          smtpPass,
-          smtpFrom,
-          smsApiKey,
-          smsApiUrl,
-          whatsappApiKey,
-          whatsappApiUrl,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -81,20 +107,17 @@ export default function IntegrationsSettingsPage() {
         throw new Error(data.error || "Failed to save");
       }
 
+      // Reset dirty flags after successful save
+      setSmtpPassDirty(false);
+      setSmsApiKeyDirty(false);
+      setWhatsappApiKeyDirty(false);
+
       toast("success", "Integration settings saved");
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
-  }
-
-  /**
-   * Mask a value for display (show first 4 and last 4 chars).
-   */
-  function maskValue(value: string): string {
-    if (value.length <= 8) return "*".repeat(value.length);
-    return value.slice(0, 4) + "*".repeat(value.length - 8) + value.slice(-4);
   }
 
   if (loading) {
@@ -140,8 +163,11 @@ export default function IntegrationsSettingsPage() {
               label="SMTP Password"
               type={showSmtpPass ? "text" : "password"}
               value={smtpPass}
-              onChange={(e) => setSmtpPass(e.target.value)}
-              placeholder="App password or SMTP password"
+              onChange={(e) => {
+                setSmtpPass(e.target.value);
+                setSmtpPassDirty(true);
+              }}
+              placeholder={smtpPassDirty ? "App password or SMTP password" : "Set — enter new value to change"}
             />
             <button
               type="button"
@@ -173,8 +199,11 @@ export default function IntegrationsSettingsPage() {
               label="API Key"
               type={showSmsKey ? "text" : "password"}
               value={smsApiKey}
-              onChange={(e) => setSmsApiKey(e.target.value)}
-              placeholder="Your SMS gateway API key"
+              onChange={(e) => {
+                setSmsApiKey(e.target.value);
+                setSmsApiKeyDirty(true);
+              }}
+              placeholder={smsApiKeyDirty ? "Your SMS gateway API key" : "Set — enter new value to change"}
             />
             <button
               type="button"
@@ -206,8 +235,11 @@ export default function IntegrationsSettingsPage() {
               label="API Key"
               type={showWhatsappKey ? "text" : "password"}
               value={whatsappApiKey}
-              onChange={(e) => setWhatsappApiKey(e.target.value)}
-              placeholder="Your WhatsApp API key"
+              onChange={(e) => {
+                setWhatsappApiKey(e.target.value);
+                setWhatsappApiKeyDirty(true);
+              }}
+              placeholder={whatsappApiKeyDirty ? "Your WhatsApp API key" : "Set — enter new value to change"}
             />
             <button
               type="button"

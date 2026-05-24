@@ -57,7 +57,8 @@ export default function AnalyticsSettingsPage() {
           fetch("/api/analytics/prediction-accuracy").then((r) => (r.ok ? r.json() : null)),
         ]);
         if (settingsRes?.settings) setSettings(settingsRes.settings);
-        if (accuracyRes) setAccuracy(accuracyRes);
+        // API wraps accuracy under { accuracy: {...} }
+        if (accuracyRes?.accuracy) setAccuracy(accuracyRes.accuracy);
       } catch {
         toast("error", "Failed to load analytics settings");
       } finally {
@@ -75,9 +76,23 @@ export default function AnalyticsSettingsPage() {
     setSettings({ ...settings, scoringWeights: updated });
   }
 
-  function handleReset() {
-    setSettings(DEFAULT_SETTINGS);
-    toast("info", "Settings reset to defaults");
+  async function handleReset() {
+    const defaults: AnalyticsSettings = { ...DEFAULT_SETTINGS };
+    setSettings(defaults);
+    try {
+      const res = await fetch("/api/analytics/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(defaults),
+      });
+      if (res.ok) {
+        toast("info", "Settings reset to defaults");
+      } else {
+        toast("warning", "Reset locally — save to persist");
+      }
+    } catch {
+      toast("warning", "Reset locally — save to persist");
+    }
   }
 
   async function handleSave() {
@@ -90,10 +105,15 @@ export default function AnalyticsSettingsPage() {
 
     setSaving(true);
     try {
+      // Settings API only accepts the toggle/threshold fields — scoringWeights managed separately
       const res = await fetch("/api/analytics/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          autoAssignByMl: settings.autoAssignByMl,
+          enableAiFollowUp: settings.enableAiFollowUp,
+          minConfidenceThreshold: settings.minConfidenceThreshold,
+        }),
       });
 
       if (!res.ok) {

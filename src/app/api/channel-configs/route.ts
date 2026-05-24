@@ -79,24 +79,37 @@ export async function POST(request: Request) {
     if (!VALID_CHANNELS.includes(channel as ValidChannel)) {
       return NextResponse.json({ error: `Invalid channel. Must be one of: ${VALID_CHANNELS.join(", ")}` }, { status: 400 });
     }
-    if (!credentials || typeof credentials !== "object" || Array.isArray(credentials)) {
+
+    // credentials is required only for new channel configs
+    const hasCredentials = credentials !== undefined && credentials !== null &&
+      typeof credentials === "object" && !Array.isArray(credentials);
+
+    if (credentials !== undefined && !hasCredentials) {
       return NextResponse.json(
         { error: "credentials must be a non-empty JSON object" },
         { status: 400 }
       );
     }
 
-    // Encrypt credentials at rest
-    const encryptedCredentials = encrypt(JSON.stringify(credentials));
-    const encryptedSecret =
-      webhookSecret && typeof webhookSecret === "string"
-        ? encrypt(webhookSecret)
-        : null;
-
     // Check whether a config for this channel already exists (tenantPrisma scopes by tenantId)
     const existing = await db.channelConfig.findFirst({
       where: { channel: channel as ValidChannel },
     });
+
+    if (!existing && !hasCredentials) {
+      return NextResponse.json(
+        { error: "credentials are required when creating a new channel config" },
+        { status: 400 }
+      );
+    }
+
+    const encryptedCredentials = hasCredentials
+      ? encrypt(JSON.stringify(credentials))
+      : null;
+    const encryptedSecret =
+      webhookSecret && typeof webhookSecret === "string"
+        ? encrypt(webhookSecret)
+        : null;
 
     const SELECT = {
       id: true,
@@ -111,16 +124,19 @@ export async function POST(request: Request) {
     let channelConfig;
 
     if (existing) {
-      // Update the existing config
+      // Update the existing config — only update credentials if provided
+      const updateData: Record<string, unknown> = {};
+      if (encryptedCredentials) {
+        updateData.credentials = encryptedCredentials;
+        updateData.verifiedAt = null; // Reset verification on credential change
+      }
+      if (encryptedSecret !== null) updateData.webhookSecret = encryptedSecret;
+      if (config !== undefined) updateData.config = config;
+      if (typeof isActive === "boolean") updateData.isActive = isActive;
+
       channelConfig = await db.channelConfig.update({
         where: { id: existing.id },
-        data: {
-          credentials: encryptedCredentials,
-          webhookSecret: encryptedSecret ?? undefined,
-          config: (config as object) ?? undefined,
-          isActive: typeof isActive === "boolean" ? isActive : undefined,
-          verifiedAt: null, // Reset verification on credential change
-        },
+        data: updateData,
         select: SELECT,
       });
     } else {
@@ -128,7 +144,7 @@ export async function POST(request: Request) {
         data: {
           tenantId: user.tenantId,
           channel: channel as ValidChannel,
-          credentials: encryptedCredentials,
+          credentials: encryptedCredentials!,
           webhookSecret: encryptedSecret,
           config: (config as object) ?? null,
           isActive: typeof isActive === "boolean" ? isActive : false,

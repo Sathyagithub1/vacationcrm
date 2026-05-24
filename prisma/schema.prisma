@@ -274,6 +274,7 @@ model Tenant {
   loginBgUrl           String?            @map("login_bg_url")
   emailTemplateConfig  Json?              @map("email_template_config")
   notificationSettings Json?              @map("notification_settings")
+  analyticsSettings    Json?              @map("analytics_settings")
   timezone             String             @default("Asia/Kolkata") @map("timezone")
   currency             String             @default("INR") @map("currency")
   address              String?            @map("address")

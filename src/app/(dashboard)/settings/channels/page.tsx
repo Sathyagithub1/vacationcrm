@@ -25,8 +25,10 @@ import type { LucideIcon } from "lucide-react";
 interface ChannelConfig {
   id?: string;
   channel: string;
-  enabled: boolean;
-  config: Record<string, string>;
+  isActive: boolean;
+  credentials?: Record<string, string>;
+  config?: Record<string, unknown>;
+  credentialsSet?: boolean;
 }
 
 interface ChannelField {
@@ -145,7 +147,8 @@ export default function ChannelsSettingsPage() {
           const data = await res.json();
           const map: Record<string, ChannelConfig> = {};
           (data.configs || []).forEach((c: ChannelConfig) => {
-            map[c.channel] = c;
+            // API returns uppercase channel names; normalize to lowercase for map key
+            map[c.channel.toLowerCase()] = c;
           });
           setConfigs(map);
         }
@@ -161,17 +164,18 @@ export default function ChannelsSettingsPage() {
   function getStatus(channelId: string): "active" | "inactive" | "not_configured" {
     const cfg = configs[channelId];
     if (!cfg) return "not_configured";
-    return cfg.enabled ? "active" : "inactive";
+    return cfg.isActive ? "active" : "inactive";
   }
 
   function openConfigure(channel: ChannelDef) {
     const existing = configs[channel.id];
     const cfg: Record<string, string> = {};
     channel.fields.forEach((f) => {
-      cfg[f.key] = existing?.config?.[f.key] || "";
+      // credentials are never returned from the API; show empty so user re-enters them
+      cfg[f.key] = "";
     });
     setFormConfig(cfg);
-    setFormEnabled(existing?.enabled ?? true);
+    setFormEnabled(existing?.isActive ?? true);
     setActiveChannel(channel);
     setVisiblePasswords({});
     setCopiedWebhook(false);
@@ -188,13 +192,19 @@ export default function ChannelsSettingsPage() {
         ? `/api/channel-configs/${existing.id}`
         : "/api/channel-configs";
 
+      // Build credentials object: only include fields that have been filled in
+      const credentials: Record<string, string> = {};
+      activeChannel.fields.forEach((f) => {
+        if (formConfig[f.key]) credentials[f.key] = formConfig[f.key];
+      });
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channel: activeChannel.id,
-          enabled: formEnabled,
-          config: formConfig,
+          channel: activeChannel.id.toUpperCase(),
+          isActive: formEnabled,
+          credentials: Object.keys(credentials).length > 0 ? credentials : undefined,
         }),
       });
 
@@ -204,7 +214,9 @@ export default function ChannelsSettingsPage() {
       }
 
       const saved = await res.json();
-      setConfigs((prev) => ({ ...prev, [activeChannel.id]: saved.config }));
+      // Normalize key to lowercase to match CHANNELS[].id
+      const channelKey = (saved.config.channel as string).toLowerCase();
+      setConfigs((prev) => ({ ...prev, [channelKey]: saved.config }));
       setActiveChannel(null);
       toast("success", `${activeChannel.name} configuration saved`);
     } catch (err) {
@@ -249,16 +261,15 @@ export default function ChannelsSettingsPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channel: channelId,
-          enabled: !existing.enabled,
-          config: existing.config,
+          isActive: !existing.isActive,
         }),
       });
 
       if (!res.ok) throw new Error("Failed to update");
       const saved = await res.json();
+      // channelId is already lowercase here
       setConfigs((prev) => ({ ...prev, [channelId]: saved.config }));
-      toast("success", `${channelId} ${saved.config.enabled ? "enabled" : "disabled"}`);
+      toast("success", `${channelId} ${(saved.config as ChannelConfig).isActive ? "enabled" : "disabled"}`);
     } catch {
       toast("error", "Failed to toggle channel");
     }
@@ -330,16 +341,16 @@ export default function ChannelsSettingsPage() {
                   <button
                     type="button"
                     role="switch"
-                    aria-checked={cfg.enabled}
+                    aria-checked={cfg.isActive}
                     aria-label={`Toggle ${channel.name}`}
                     onClick={() => handleToggle(channel.id)}
                     className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                      cfg.enabled ? "bg-primary-500" : "bg-gray-200"
+                      cfg.isActive ? "bg-primary-500" : "bg-gray-200"
                     }`}
                   >
                     <span
                       className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform ${
-                        cfg.enabled ? "translate-x-5" : "translate-x-0"
+                        cfg.isActive ? "translate-x-5" : "translate-x-0"
                       }`}
                     />
                   </button>
