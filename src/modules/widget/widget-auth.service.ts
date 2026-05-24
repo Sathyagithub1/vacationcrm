@@ -6,6 +6,8 @@ const VISITOR_TOKEN_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 export interface VisitorTokenPayload {
   tenantId: string;
   visitorId: string;
+  /** The WidgetConfig id that originated this session — used for department routing */
+  widgetConfigId?: string;
   /** Standard JWT field — issued-at (epoch seconds) */
   iat?: number;
   /** Standard JWT field — expiry (epoch seconds) */
@@ -14,11 +16,12 @@ export interface VisitorTokenPayload {
 
 /**
  * Create a short-lived JWT (24 h) for an anonymous widget visitor.
- * The token embeds tenantId and visitorId so every subsequent request
- * can be authorised without a session cookie.
+ * The token embeds tenantId, visitorId and (optionally) the widgetConfigId so
+ * every subsequent request can be authorised and routed to the correct department
+ * without a session cookie.
  */
-export function createVisitorToken(tenantId: string, visitorId: string): string {
-  const payload: VisitorTokenPayload = { tenantId, visitorId };
+export function createVisitorToken(tenantId: string, visitorId: string, widgetConfigId?: string): string {
+  const payload: VisitorTokenPayload = { tenantId, visitorId, ...(widgetConfigId ? { widgetConfigId } : {}) };
   return jwt.sign(payload, WIDGET_JWT_SECRET, { expiresIn: VISITOR_TOKEN_TTL_SECONDS });
 }
 

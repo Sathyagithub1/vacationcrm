@@ -28,18 +28,19 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         id: true,
         isActive: true,
         position: true,
+        themeOverride: true,
         department: { select: { slug: true } },
       },
-    }) as { id: string; isActive: boolean; position: string; department: { slug: string } } | null;
+    }) as { id: string; isActive: boolean; position: string; themeOverride: Record<string, unknown> | null; department: { slug: string } } | null;
 
     if (!config) {
       return NextResponse.json({ error: "Widget config not found" }, { status: 404 });
     }
 
-    // Resolve tenant slug + product name for the embed snippet
+    // Resolve tenant slug, product name, and theme color for the embed snippet
     const tenant = await prisma.tenant.findUnique({
       where: { id: user.tenantId },
-      select: { slug: true, productName: true },
+      select: { slug: true, productName: true, themeConfig: true },
     });
 
     if (!tenant) {
@@ -57,20 +58,22 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const deptSlug = config.department.slug;
     const productName = tenant.productName;
 
+    // Resolve theme color: prefer widget themeOverride, then tenant themeConfig, then brand default
+    const themeOverride = config.themeOverride as Record<string, unknown> | null;
+    const tenantTheme = tenant.themeConfig as Record<string, unknown> | null;
+    const primaryColor: string =
+      (typeof themeOverride?.primaryColor === "string" ? themeOverride.primaryColor : null) ??
+      (typeof tenantTheme?.primaryColor === "string" ? tenantTheme.primaryColor : null) ??
+      "#FF6B35";
+
     const embedCode = `<!-- ${productName} Chat Widget -->
-<script>
-  window.__hdWidget = {
-    tenant: "${tenantSlug}",
-    dept:   "${deptSlug}",
-    config: "${id}"
-  };
-  (function(d, s) {
-    var js = d.createElement(s);
-    js.async = true;
-    js.src = "${baseUrl}/widget-loader.js";
-    d.head.appendChild(js);
-  })(document, "script");
-</script>
+<script src="${baseUrl}/widget.js"
+  data-tenant="${tenantSlug}"
+  data-dept="${deptSlug}"
+  data-config="${id}"
+  data-theme="${primaryColor}"
+  data-product-name="${productName}"
+  async></script>
 <!-- End ${productName} Chat Widget -->`;
 
     return NextResponse.json({

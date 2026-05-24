@@ -190,7 +190,7 @@ export async function PATCH(
         return NextResponse.json({ error: "Agent ID is required" }, { status: 400 });
       }
 
-      const lead = await assignLead(db, id, agentId, user.id);
+      const lead = await assignLead(db, id, agentId, user.id, user.tenantId);
 
       await logAudit({
         tenantId: user.tenantId,

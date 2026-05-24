@@ -300,7 +300,7 @@ export default function WidgetChatPage({
 
   const handleClose = () => {
     if (typeof window !== "undefined") {
-      window.parent.postMessage("hd-widget-close", "*");
+      window.parent.postMessage({ type: "hd-widget-close" }, "*");
     }
   };
 

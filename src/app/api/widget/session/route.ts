@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, tenantPrisma } from "@/lib/prisma";
 import { getOrCreateVisitor } from "@/modules/widget/visitor.service";
 import { createVisitorToken } from "@/modules/widget/widget-auth.service";
+import { createNotification } from "@/modules/notifications/notification.service";
 
 /**
  * POST /api/widget/session
@@ -65,31 +66,106 @@ export async function POST(request: NextRequest) {
       userAgent: userAgent ?? undefined,
     });
 
-    // Find an existing ACTIVE WEBSITE conversation for this visitor,
-    // or open a new one scoped to the department's widget.
+    // Find an existing ACTIVE WEBSITE conversation for this visitor scoped to this department,
+    // or open a new one. We scope by assignedAgentId being set from this widgetConfig's department
+    // but the lightest approach is to match on widgetConfigId stored as channel metadata.
+    // Since Conversation has no widgetConfigId column, we match existing conversations by
+    // (customerId OR unassigned visitor) that are already assigned to an agent in this department.
     const customerId = (visitor as Record<string, unknown>).customerId as string | undefined;
+
+    // Look for an existing open WEBSITE conversation for this visitor in this department.
+    // Department agents are used as the scope filter for existing conversations.
+    const deptAgentIds = await (db.user.findMany as Function)({
+      where: { departmentId: department.id, isActive: true },
+      select: { id: true },
+    }) as Array<{ id: string }>;
+    const deptAgentIdSet = deptAgentIds.map((u: { id: string }) => u.id);
 
     const existingConversation = await (db.conversation.findFirst as Function)({
       where: {
         channel: "WEBSITE",
         status: { in: ["ACTIVE", "HUMAN_TAKEOVER"] },
         ...(customerId ? { customerId } : {}),
+        ...(deptAgentIdSet.length > 0 ? { assignedAgentId: { in: deptAgentIdSet } } : {}),
       },
       orderBy: { startedAt: "desc" },
-      select: { id: true },
-    }) as { id: string } | null;
+      select: { id: true, assignedAgentId: true },
+    }) as { id: string; assignedAgentId: string | null } | null;
+
+    let assignedAgentId: string | null = existingConversation?.assignedAgentId ?? null;
+
+    // Auto-assign to least-loaded active agent in this department when creating a new conversation
+    if (!existingConversation) {
+      // Resolve least-loaded agent: AGENT role first, fall back to DEPT_MANAGER, then COMPANY_ADMIN
+      type AgentRow = { id: string; role: string; _count?: { conversations: number } };
+
+      const candidates = await (db.user.findMany as Function)({
+        where: { departmentId: department.id, isActive: true, role: { in: ["AGENT", "DEPT_MANAGER"] } },
+        select: { id: true, role: true },
+      }) as AgentRow[];
+
+      if (candidates.length === 0) {
+        // Fall back to any COMPANY_ADMIN for this tenant
+        const admins = await (db.user.findMany as Function)({
+          where: { role: "COMPANY_ADMIN", isActive: true },
+          select: { id: true, role: true },
+          take: 1,
+        }) as AgentRow[];
+        if (admins.length > 0) candidates.push(...admins);
+      }
+
+      if (candidates.length > 0) {
+        // Pick least-loaded: count their open WEBSITE conversations
+        type LoadRow = { assignedAgentId: string; _count: { id: number } };
+        const loadCounts = await (db.conversation.groupBy as Function)({
+          by: ["assignedAgentId"],
+          where: {
+            assignedAgentId: { in: candidates.map((c: AgentRow) => c.id) },
+            status: { in: ["ACTIVE", "HUMAN_TAKEOVER"] },
+          },
+          _count: { id: true },
+        }) as LoadRow[];
+
+        const loadMap = new Map<string, number>(
+          loadCounts.map((row: LoadRow) => [row.assignedAgentId, row._count.id])
+        );
+
+        // Sort AGENT role before DEPT_MANAGER, then by load ascending
+        const sorted = [...candidates].sort((a: AgentRow, b: AgentRow) => {
+          const roleOrder = (r: string) => (r === "AGENT" ? 0 : r === "DEPT_MANAGER" ? 1 : 2);
+          const roleDiff = roleOrder(a.role) - roleOrder(b.role);
+          if (roleDiff !== 0) return roleDiff;
+          return (loadMap.get(a.id) ?? 0) - (loadMap.get(b.id) ?? 0);
+        });
+
+        assignedAgentId = sorted[0].id;
+      }
+    }
 
     const conversation = existingConversation ?? (await (db.conversation.create as Function)({
       data: {
         channel: "WEBSITE",
         status: "ACTIVE",
         ...(customerId ? { customerId } : {}),
+        ...(assignedAgentId ? { assignedAgentId } : {}),
         startedAt: new Date(),
       },
-      select: { id: true },
-    }) as { id: string });
+      select: { id: true, assignedAgentId: true },
+    }) as { id: string; assignedAgentId: string | null });
 
-    const visitorToken = createVisitorToken(tenant.id, visitorId.trim());
+    // Fire NEW_MESSAGE notification to the assigned agent so they know a visitor started chatting
+    if (assignedAgentId && !existingConversation) {
+      createNotification({
+        tenantId: tenant.id,
+        userId: assignedAgentId,
+        type: "NEW_MESSAGE",
+        title: "New visitor chat started",
+        body: "A visitor has opened a new chat session and is waiting for a response.",
+        data: { conversationId: conversation.id, widgetConfigId: widgetConfig.id, departmentId: department.id },
+      }).catch((err) => console.error("[Widget] Failed to send new-chat notification:", err));
+    }
+
+    const visitorToken = createVisitorToken(tenant.id, visitorId.trim(), widgetConfig.id);
 
     return NextResponse.json({
       visitorToken,

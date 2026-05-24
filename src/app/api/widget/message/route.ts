@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized — missing or invalid visitor token" }, { status: 401 });
     }
 
-    const { tenantId, visitorId } = tokenPayload;
+    const { tenantId, visitorId, widgetConfigId } = tokenPayload;
     const db = tenantPrisma(tenantId);
 
     // ── Input validation ──────────────────────────────────────────────────────
@@ -127,11 +127,16 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Resolve department from widget config linked to this conversation's channel
-    // We look up any active widget config for this tenant to find the departmentId
-    // for context building (knowledge base + system prompt).
+    // Resolve the department from the widgetConfigId embedded in the visitor JWT.
+    // This ensures that a visitor who arrived via "hd-visas" widget gets the hd-visas
+    // knowledge base and system prompt — not a random other department's config.
+    // Fall back to any active widget config only when the token has no widgetConfigId
+    // (e.g. tokens issued before this fix was deployed).
     const widgetConfig = await (db as any).widgetConfig.findFirst({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        ...(widgetConfigId ? { id: widgetConfigId } : {}),
+      },
       select: { departmentId: true },
       orderBy: { createdAt: "asc" },
     }) as { departmentId: string } | null;

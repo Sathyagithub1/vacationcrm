@@ -3,7 +3,9 @@
   var script = document.currentScript;
   var tenant = script.getAttribute('data-tenant');
   var dept = script.getAttribute('data-dept');
-  var theme = script.getAttribute('data-theme') || 'auto';
+  var config = script.getAttribute('data-config') || '';
+  var theme = script.getAttribute('data-theme') || '#FF6B35';
+  var productName = script.getAttribute('data-product-name') || 'Chat';
   if (!tenant || !dept) return;
 
   var baseUrl = script.src.replace('/widget.js', '');
@@ -18,7 +20,7 @@
   btn.setAttribute('tabindex', '0');
   btn.setAttribute('aria-label', 'Open chat');
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="28" height="28" fill="white" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>';
-  btn.style.cssText = 'position:fixed;bottom:20px;right:20px;width:60px;height:60px;border-radius:50%;background:#FF6B35;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:999998;transition:transform 0.2s;';
+  btn.style.cssText = 'position:fixed;bottom:20px;right:20px;width:60px;height:60px;border-radius:50%;background:' + theme + ';display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:999998;transition:transform 0.2s;';
   btn.onmouseenter = function() { btn.style.transform = 'scale(1.1)'; };
   btn.onmouseleave = function() { btn.style.transform = 'scale(1)'; };
 
@@ -45,10 +47,10 @@
   function openWidget() {
     if (!iframe) {
       iframe = document.createElement('iframe');
-      iframe.src = baseUrl + '/widget/chat?tenant=' + encodeURIComponent(tenant) + '&dept=' + encodeURIComponent(dept) + '&theme=' + encodeURIComponent(theme);
+      iframe.src = baseUrl + '/widget/chat?tenant=' + encodeURIComponent(tenant) + '&dept=' + encodeURIComponent(dept) + '&theme=' + encodeURIComponent(theme) + (config ? '&config=' + encodeURIComponent(config) : '');
       iframe.style.cssText = 'position:fixed;bottom:90px;right:20px;width:380px;height:560px;border:none;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.15);z-index:999999;transition:opacity 0.2s;';
       iframe.allow = 'clipboard-read; clipboard-write';
-      iframe.setAttribute('title', 'Holiday Delight Chat');
+      iframe.setAttribute('title', productName + ' Chat');
       document.body.appendChild(iframe);
       checkMobile();
     }

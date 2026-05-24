@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/prisma";
+import { createNotification } from "@/modules/notifications/notification.service";
 
 type TenantDb = ReturnType<typeof import("@/lib/prisma").tenantPrisma>;
 
-export async function assignLead(db: TenantDb, leadId: string, agentId: string, assignedBy: string) {
+export async function assignLead(db: TenantDb, leadId: string, agentId: string, assignedBy: string, tenantId: string) {
   const lead = await db.lead.findFirst({
     where: { id: leadId },
     include: { assignee: { select: { id: true, name: true } } },
@@ -33,16 +34,16 @@ export async function assignLead(db: TenantDb, leadId: string, agentId: string, 
     },
   });
 
-  // Create LEAD_ASSIGNED notification for the agent
-  await (db.notification.create as Function)({
-    data: {
-      userId: agentId,
-      type: "LEAD_ASSIGNED",
-      title: "New lead assigned",
-      body: `A lead has been assigned to you.`,
-      data: { leadId },
-      channelsSent: ["IN_APP"],
-    },
+  // Create LEAD_ASSIGNED notification for the agent via the multi-channel dispatcher.
+  // This replaces the former direct db.notification.create so that email/SMS/WA channels
+  // configured by the tenant's notificationSettings are also honoured.
+  await createNotification({
+    tenantId,
+    userId: agentId,
+    type: "LEAD_ASSIGNED",
+    title: "New lead assigned",
+    body: `A lead has been assigned to you.`,
+    data: { leadId },
   });
 
   return updatedLead;
