@@ -5,6 +5,16 @@ interface ReportFilters {
   dateFrom?: string;
   dateTo?: string;
   departmentId?: string;
+  /**
+   * RBAC scope fields injected by the route.
+   * - scopedDepartmentId: when set, restrict all lead queries to this
+   *   department (used for DEPT_MANAGER).
+   * - scopedAssignedTo: when set, restrict all lead queries to this agent
+   *   (used for AGENT).
+   * These take precedence over the user-supplied `departmentId` filter.
+   */
+  scopedDepartmentId?: string;
+  scopedAssignedTo?: string;
 }
 
 function buildDateFilter(dateFrom?: string, dateTo?: string) {
@@ -17,11 +27,17 @@ function buildDateFilter(dateFrom?: string, dateTo?: string) {
 // ─── Lead Funnel ────────────────────────────────────────────────────────────
 
 export async function getLeadFunnel(filters: ReportFilters) {
-  const { tenantId, dateFrom, dateTo, departmentId } = filters;
+  const { tenantId, dateFrom, dateTo, departmentId, scopedDepartmentId, scopedAssignedTo } = filters;
   const dateFilter = buildDateFilter(dateFrom, dateTo);
 
   const where: Record<string, unknown> = { tenantId };
-  if (departmentId) where.departmentId = departmentId;
+  // RBAC hard scopes take precedence over user-supplied filters
+  if (scopedDepartmentId) {
+    where.departmentId = scopedDepartmentId;
+  } else if (departmentId) {
+    where.departmentId = departmentId;
+  }
+  if (scopedAssignedTo) where.assignedTo = scopedAssignedTo;
   if (dateFilter) where.createdAt = dateFilter;
 
   const stages = await prisma.pipelineStage.findMany({
@@ -56,14 +72,19 @@ export async function getLeadFunnel(filters: ReportFilters) {
 // ─── Department Performance ─────────────────────────────────────────────────
 
 export async function getDepartmentPerformance(filters: ReportFilters) {
-  const { tenantId, dateFrom, dateTo } = filters;
+  const { tenantId, dateFrom, dateTo, scopedDepartmentId, scopedAssignedTo } = filters;
   const dateFilter = buildDateFilter(dateFrom, dateTo);
 
   const where: Record<string, unknown> = { tenantId };
+  if (scopedDepartmentId) where.departmentId = scopedDepartmentId;
+  if (scopedAssignedTo) where.assignedTo = scopedAssignedTo;
   if (dateFilter) where.createdAt = dateFilter;
 
+  const deptWhere: Record<string, unknown> = { tenantId, isActive: true };
+  if (scopedDepartmentId) deptWhere.id = scopedDepartmentId;
+
   const departments = await prisma.department.findMany({
-    where: { tenantId, isActive: true },
+    where: deptWhere,
     select: { id: true, name: true },
   });
 
@@ -97,8 +118,14 @@ export async function getDepartmentPerformance(filters: ReportFilters) {
     const convRate = leads > 0 ? Math.round((converted / leads) * 10000) / 100 : 0;
 
     // Compute avg response time for this department
+    const deptLeadWhere: Record<string, unknown> = {
+      tenantId,
+      departmentId: dept.id,
+      ...(dateFilter ? { createdAt: dateFilter } : {}),
+    };
+    if (scopedAssignedTo) deptLeadWhere.assignedTo = scopedAssignedTo;
     const deptLeads = await prisma.lead.findMany({
-      where: { tenantId, departmentId: dept.id, ...(dateFilter ? { createdAt: dateFilter } : {}) },
+      where: deptLeadWhere,
       select: { id: true, createdAt: true },
       take: 100,
       orderBy: { createdAt: "desc" },
@@ -142,7 +169,7 @@ export async function getDepartmentPerformance(filters: ReportFilters) {
 // ─── Agent Performance ──────────────────────────────────────────────────────
 
 export async function getAgentPerformance(filters: ReportFilters) {
-  const { tenantId, dateFrom, dateTo, departmentId } = filters;
+  const { tenantId, dateFrom, dateTo, departmentId, scopedDepartmentId, scopedAssignedTo } = filters;
   const dateFilter = buildDateFilter(dateFrom, dateTo);
 
   const agentWhere: Record<string, unknown> = {
@@ -150,7 +177,13 @@ export async function getAgentPerformance(filters: ReportFilters) {
     role: { in: ["AGENT", "DEPT_MANAGER"] },
     isActive: true,
   };
-  if (departmentId) agentWhere.departmentId = departmentId;
+  if (scopedDepartmentId) {
+    agentWhere.departmentId = scopedDepartmentId;
+  } else if (departmentId) {
+    agentWhere.departmentId = departmentId;
+  }
+  // AGENT role: only show the requesting agent's own row
+  if (scopedAssignedTo) agentWhere.id = scopedAssignedTo;
 
   const agents = await prisma.user.findMany({
     where: agentWhere,
@@ -158,7 +191,12 @@ export async function getAgentPerformance(filters: ReportFilters) {
   });
 
   const leadWhere: Record<string, unknown> = { tenantId, assignedTo: { not: null } };
-  if (departmentId) leadWhere.departmentId = departmentId;
+  if (scopedDepartmentId) {
+    leadWhere.departmentId = scopedDepartmentId;
+  } else if (departmentId) {
+    leadWhere.departmentId = departmentId;
+  }
+  if (scopedAssignedTo) leadWhere.assignedTo = scopedAssignedTo;
   if (dateFilter) leadWhere.createdAt = dateFilter;
 
   const leadCounts = await prisma.lead.groupBy({
@@ -201,11 +239,16 @@ export async function getAgentPerformance(filters: ReportFilters) {
 // ─── Source Analysis ────────────────────────────────────────────────────────
 
 export async function getSourceAnalysis(filters: ReportFilters) {
-  const { tenantId, dateFrom, dateTo, departmentId } = filters;
+  const { tenantId, dateFrom, dateTo, departmentId, scopedDepartmentId, scopedAssignedTo } = filters;
   const dateFilter = buildDateFilter(dateFrom, dateTo);
 
   const where: Record<string, unknown> = { tenantId };
-  if (departmentId) where.departmentId = departmentId;
+  if (scopedDepartmentId) {
+    where.departmentId = scopedDepartmentId;
+  } else if (departmentId) {
+    where.departmentId = departmentId;
+  }
+  if (scopedAssignedTo) where.assignedTo = scopedAssignedTo;
   if (dateFilter) where.createdAt = dateFilter;
 
   const counts = await prisma.lead.groupBy({
@@ -246,11 +289,14 @@ export async function getSourceAnalysis(filters: ReportFilters) {
 // ─── Follow-up Effectiveness ────────────────────────────────────────────────
 
 export async function getFollowUpEffectiveness(filters: ReportFilters) {
-  const { tenantId, dateFrom, dateTo } = filters;
+  const { tenantId, dateFrom, dateTo, scopedDepartmentId, scopedAssignedTo } = filters;
   const dateFilter = buildDateFilter(dateFrom, dateTo);
 
   const baseWhere: Record<string, unknown> = { tenantId };
   if (dateFilter) baseWhere.createdAt = dateFilter;
+  // RBAC scoping: FollowUp has assignedTo directly; dept must go via lead relation
+  if (scopedAssignedTo) baseWhere.assignedTo = scopedAssignedTo;
+  if (scopedDepartmentId) baseWhere.lead = { departmentId: scopedDepartmentId };
 
   const totalFollowUps = await prisma.followUp.count({ where: baseWhere });
   const completedFollowUps = await prisma.followUp.count({
@@ -302,7 +348,7 @@ export async function getFollowUpEffectiveness(filters: ReportFilters) {
 // ─── Time Trends ────────────────────────────────────────────────────────────
 
 export async function getTimeTrends(filters: ReportFilters & { granularity?: string }) {
-  const { tenantId, dateFrom, dateTo, departmentId, granularity = "daily" } = filters;
+  const { tenantId, dateFrom, dateTo, departmentId, scopedDepartmentId, scopedAssignedTo, granularity = "daily" } = filters;
 
   // Default to last 30 days if no date range
   const effectiveFrom = dateFrom
@@ -314,7 +360,12 @@ export async function getTimeTrends(filters: ReportFilters & { granularity?: str
     tenantId,
     createdAt: { gte: effectiveFrom, lte: effectiveTo },
   };
-  if (departmentId) where.departmentId = departmentId;
+  if (scopedDepartmentId) {
+    where.departmentId = scopedDepartmentId;
+  } else if (departmentId) {
+    where.departmentId = departmentId;
+  }
+  if (scopedAssignedTo) where.assignedTo = scopedAssignedTo;
 
   const leads = await prisma.lead.findMany({
     where,

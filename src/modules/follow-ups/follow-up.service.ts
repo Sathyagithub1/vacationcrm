@@ -12,6 +12,7 @@ interface ListFollowUpsParams {
   status?: string;
   type?: string;
   assignedTo?: string;
+  leadDepartmentId?: string;
   page?: number;
   limit?: number;
 }
@@ -40,13 +41,15 @@ export async function createFollowUp(db: TenantDb, data: CreateFollowUpData) {
 }
 
 export async function listFollowUps(db: TenantDb, params: ListFollowUpsParams) {
-  const { status, type, assignedTo, page = 1, limit = 20 } = params;
+  const { status, type, assignedTo, leadDepartmentId, page = 1, limit = 20 } = params;
   const skip = (page - 1) * limit;
 
   const where: Record<string, unknown> = {};
   if (status) where.status = status;
   if (type) where.type = type;
   if (assignedTo) where.assignedTo = assignedTo;
+  // DEPT_MANAGER scope: only follow-ups linked to leads in their department
+  if (leadDepartmentId) where.lead = { departmentId: leadDepartmentId };
 
   const [followUps, total] = await Promise.all([
     db.followUp.findMany({

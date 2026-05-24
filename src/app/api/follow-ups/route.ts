@@ -18,16 +18,21 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20", 10)));
 
-    // RBAC: Agents only see their own follow-ups
+    // RBAC: Agents only see their own follow-ups;
+    // dept managers see only follow-ups linked to leads in their department.
     let effectiveAssignedTo = assignedTo;
+    let leadDepartmentId: string | undefined;
     if (user.role === "AGENT") {
       effectiveAssignedTo = user.id;
+    } else if (user.role === "DEPT_MANAGER" && user.departmentId) {
+      leadDepartmentId = user.departmentId;
     }
 
     const result = await listFollowUps(db, {
       status: status && VALID_STATUSES.includes(status) ? status : undefined,
       type: type && VALID_TYPES.includes(type) ? type : undefined,
       assignedTo: effectiveAssignedTo || undefined,
+      leadDepartmentId,
       page,
       limit,
     });

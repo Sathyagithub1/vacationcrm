@@ -28,12 +28,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file type
-    const allowedTypes = ["image/png", "image/jpeg", "image/svg+xml", "image/webp", "image/x-icon"];
+    // Validate file type — SVG is explicitly rejected (XSS risk; no sanitiser in place)
+    if (file.type === "image/svg+xml") {
+      return NextResponse.json(
+        { error: "SVG uploads are not supported — please use PNG, JPG, or WebP" },
+        { status: 415 }
+      );
+    }
+    const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/x-icon"];
     if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
-        { error: "Invalid file type — only PNG, JPEG, SVG, WebP, ICO allowed" },
-        { status: 400 }
+        { error: "Invalid file type — only PNG, JPEG, WebP, ICO allowed" },
+        { status: 415 }
       );
     }
 

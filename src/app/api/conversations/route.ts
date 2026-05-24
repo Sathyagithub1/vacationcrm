@@ -13,15 +13,20 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
 
-    // RBAC: agents see only their own conversations
+    // RBAC: agents see only their own conversations;
+    // dept managers see only conversations linked to leads in their department.
     let assignedAgentId: string | undefined;
+    let leadDepartmentId: string | undefined;
     if (user.role === "AGENT") {
       assignedAgentId = user.id;
+    } else if (user.role === "DEPT_MANAGER" && user.departmentId) {
+      leadDepartmentId = user.departmentId;
     }
 
     const result = await listConversations(db, {
       status: status || undefined,
       assignedAgentId,
+      leadDepartmentId,
       page,
       limit,
     });

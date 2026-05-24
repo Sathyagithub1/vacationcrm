@@ -80,14 +80,22 @@ export async function closeConversation(db: TenantDb, conversationId: string) {
 
 export async function listConversations(
   db: TenantDb,
-  filters: { status?: string; assignedAgentId?: string; page?: number; limit?: number }
+  filters: {
+    status?: string;
+    assignedAgentId?: string;
+    leadDepartmentId?: string;
+    page?: number;
+    limit?: number;
+  }
 ) {
-  const { status, assignedAgentId, page = 1, limit = 50 } = filters;
+  const { status, assignedAgentId, leadDepartmentId, page = 1, limit = 50 } = filters;
   const skip = (page - 1) * limit;
 
   const where: Record<string, unknown> = {};
   if (status) where.status = status;
   if (assignedAgentId) where.assignedAgentId = assignedAgentId;
+  // DEPT_MANAGER scope: only conversations linked to leads in their department
+  if (leadDepartmentId) where.lead = { departmentId: leadDepartmentId };
 
   const [conversations, total] = await Promise.all([
     db.conversation.findMany({

@@ -1,6 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, unauthorized } from "@/modules/auth/tenant.middleware";
+import { requireAuth, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { getMessages, sendMessage } from "@/modules/conversations/chat.service";
+
+/**
+ * Shared conversation ownership guard — mirrors the same logic in
+ * `conversations/[id]/route.ts`.  Returns a 403 NextResponse on denial, or
+ * null when access is permitted.
+ */
+function checkConversationAccess(
+  conversation: {
+    assignedAgentId: string | null;
+    lead: { departmentId: string; assignedTo: string | null } | null;
+  },
+  user: { role: string; id: string; departmentId: string | null | undefined }
+): NextResponse | null {
+  if (user.role === "AGENT") {
+    const ownedByAgent =
+      conversation.assignedAgentId === user.id ||
+      (conversation.assignedAgentId === null &&
+        conversation.lead?.assignedTo === user.id);
+    if (!ownedByAgent) return forbidden();
+  }
+
+  if (user.role === "DEPT_MANAGER" && user.departmentId) {
+    if (conversation.lead?.departmentId !== user.departmentId) return forbidden();
+  }
+
+  return null;
+}
 
 // GET /api/conversations/[id]/messages — list messages
 export async function GET(
@@ -9,17 +36,24 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const { db } = await requireAuth();
+    const { user, db } = await requireAuth();
     const { searchParams } = request.nextUrl;
 
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
 
-    // Verify conversation exists
-    const conversation = await db.conversation.findFirst({ where: { id } });
+    // Verify conversation exists and includes lead for ownership check
+    const conversation = await db.conversation.findFirst({
+      where: { id },
+      include: { lead: { select: { departmentId: true, assignedTo: true } } },
+    });
     if (!conversation) {
       return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }
+
+    // RBAC ownership gate
+    const deny = checkConversationAccess(conversation, user);
+    if (deny) return deny;
 
     const result = await getMessages(db, id, page, limit);
     return NextResponse.json(result);
@@ -47,6 +81,19 @@ export async function POST(
     if (!content || typeof content !== "string" || !content.trim()) {
       return NextResponse.json({ error: "Message content is required" }, { status: 400 });
     }
+
+    // Verify conversation exists and includes lead for ownership check
+    const conversation = await db.conversation.findFirst({
+      where: { id },
+      include: { lead: { select: { departmentId: true, assignedTo: true } } },
+    });
+    if (!conversation) {
+      return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+    }
+
+    // RBAC ownership gate before allowing message creation
+    const deny = checkConversationAccess(conversation, user);
+    if (deny) return deny;
 
     // Phase 1: only agents send messages via this endpoint.
     // Force senderType to AGENT and senderId to the authenticated user.

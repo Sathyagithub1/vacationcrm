@@ -39,11 +39,25 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // RBAC: compute hard-scope constraints that override any user-supplied filter.
+    // AGENT       → restrict all lead queries to their own assignedTo.
+    // DEPT_MANAGER → restrict all lead queries to their department.
+    // COMPANY_ADMIN / SUPER_ADMIN → unrestricted (scopeAssignedTo/scopedDepartmentId remain undefined).
+    let scopedAssignedTo: string | undefined;
+    let scopedDepartmentId: string | undefined;
+    if (user.role === "AGENT") {
+      scopedAssignedTo = user.id;
+    } else if (user.role === "DEPT_MANAGER" && user.departmentId) {
+      scopedDepartmentId = user.departmentId;
+    }
+
     const filters = {
       tenantId: user.tenantId,
       dateFrom,
       dateTo,
       departmentId,
+      scopedAssignedTo,
+      scopedDepartmentId,
     };
 
     let data: { rows: Record<string, unknown>[]; summary?: Record<string, unknown>; granularity?: string };
