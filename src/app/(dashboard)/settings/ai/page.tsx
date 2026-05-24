@@ -9,21 +9,29 @@ import { useToast } from "@/components/ui/toast";
 import { Spinner } from "@/components/ui/loading";
 import { Eye, EyeOff, Brain, Trash2, Plus } from "lucide-react";
 
-interface AiProvider {
-  id?: string;
+interface AiProviderRow {
+  id: string;
+  provider: string;
+  modelName: string;
+  isActive: boolean;
+  config?: { temperature?: number; maxTokens?: number } | null;
+}
+
+interface FormState {
   provider: string;
   apiKey: string;
-  model: string;
+  modelName: string;
   temperature: number;
   maxTokens: number;
-  active: boolean;
+  isActive: boolean;
 }
 
 interface AiMetrics {
-  totalRequests: number;
-  avgLatencyMs: number;
-  successRate: number;
-  tokensUsed: number;
+  totalConversations: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  handoffCount: number;
+  handoffRate: number;
 }
 
 const PROVIDER_OPTIONS = [
@@ -33,27 +41,27 @@ const PROVIDER_OPTIONS = [
 ];
 
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  CLAUDE: ["claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
+  CLAUDE: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
   OPENAI: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
   GEMINI: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
 };
 
-const defaultForm: AiProvider = {
+const defaultForm: FormState = {
   provider: "CLAUDE",
   apiKey: "",
-  model: "",
+  modelName: "",
   temperature: 0.7,
   maxTokens: 2048,
-  active: true,
+  isActive: true,
 };
 
 export default function AiSettingsPage() {
   const { toast } = useToast();
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
-  const [providers, setProviders] = React.useState<AiProvider[]>([]);
+  const [providers, setProviders] = React.useState<AiProviderRow[]>([]);
   const [metrics, setMetrics] = React.useState<AiMetrics | null>(null);
-  const [form, setForm] = React.useState<AiProvider>(defaultForm);
+  const [form, setForm] = React.useState<FormState>(defaultForm);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [showApiKey, setShowApiKey] = React.useState(false);
   const [showSuggestions, setShowSuggestions] = React.useState(false);
@@ -66,7 +74,7 @@ export default function AiSettingsPage() {
           fetch("/api/ai/metrics").then((r) => (r.ok ? r.json() : null)),
         ]);
         if (providersRes?.providers) setProviders(providersRes.providers);
-        if (metricsRes) setMetrics(metricsRes);
+        if (metricsRes?.metrics) setMetrics(metricsRes.metrics);
       } catch {
         toast("error", "Failed to load AI configuration");
       } finally {
@@ -76,9 +84,16 @@ export default function AiSettingsPage() {
     fetchData();
   }, [toast]);
 
-  function handleEdit(provider: AiProvider) {
-    setForm({ ...provider, apiKey: "" });
-    setEditingId(provider.id || null);
+  function handleEdit(provider: AiProviderRow) {
+    setForm({
+      provider: provider.provider,
+      apiKey: "",
+      modelName: provider.modelName,
+      temperature: provider.config?.temperature ?? 0.7,
+      maxTokens: provider.config?.maxTokens ?? 2048,
+      isActive: provider.isActive,
+    });
+    setEditingId(provider.id);
     setShowApiKey(false);
   }
 
@@ -93,7 +108,7 @@ export default function AiSettingsPage() {
       toast("error", "API Key is required");
       return;
     }
-    if (!form.model.trim()) {
+    if (!form.modelName.trim()) {
       toast("error", "Model name is required");
       return;
     }
@@ -104,10 +119,10 @@ export default function AiSettingsPage() {
       const url = editingId ? `/api/ai/providers/${editingId}` : "/api/ai/providers";
       const body: Record<string, unknown> = {
         provider: form.provider,
-        model: form.model,
+        modelName: form.modelName,
         temperature: form.temperature,
         maxTokens: form.maxTokens,
-        active: form.active,
+        isActive: form.isActive,
       };
       if (form.apiKey) body.apiKey = form.apiKey;
 
@@ -183,19 +198,19 @@ export default function AiSettingsPage() {
                       {PROVIDER_OPTIONS.find((o) => o.value === p.provider)?.label || p.provider}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {p.model} &middot; temp {p.temperature} &middot; max {p.maxTokens} tokens
+                      {p.modelName} &middot; temp {p.config?.temperature ?? 0.7} &middot; max {p.config?.maxTokens ?? 2048} tokens
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={p.active ? "success" : "default"}>
-                    {p.active ? "Active" : "Inactive"}
+                  <Badge variant={p.isActive ? "success" : "default"}>
+                    {p.isActive ? "Active" : "Inactive"}
                   </Badge>
                   <Button variant="ghost" size="sm" onClick={() => handleEdit(p)}>
                     Edit
                   </Button>
                   <button
-                    onClick={() => handleDelete(p.id!)}
+                    onClick={() => handleDelete(p.id)}
                     className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500"
                     aria-label="Delete provider"
                   >
@@ -247,11 +262,11 @@ export default function AiSettingsPage() {
           <div className="relative">
             <Input
               label="Model Name"
-              value={form.model}
-              onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+              value={form.modelName}
+              onChange={(e) => setForm((f) => ({ ...f, modelName: e.target.value }))}
               onFocus={() => setShowSuggestions(true)}
               onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-              placeholder="e.g. gpt-4o, claude-sonnet-4-20250514"
+              placeholder="e.g. gpt-4o, claude-opus-4-7"
             />
             {showSuggestions && suggestions.length > 0 && (
               <div className="absolute left-0 top-full z-10 mt-1 w-full rounded-md border border-gray-200 bg-white py-1 shadow-lg">
@@ -260,7 +275,7 @@ export default function AiSettingsPage() {
                     key={s}
                     type="button"
                     className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
-                    onMouseDown={() => setForm((f) => ({ ...f, model: s }))}
+                    onMouseDown={() => setForm((f) => ({ ...f, modelName: s }))}
                   >
                     {s}
                   </button>
@@ -305,15 +320,15 @@ export default function AiSettingsPage() {
             <button
               type="button"
               role="switch"
-              aria-checked={form.active}
-              onClick={() => setForm((f) => ({ ...f, active: !f.active }))}
+              aria-checked={form.isActive}
+              onClick={() => setForm((f) => ({ ...f, isActive: !f.isActive }))}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                form.active ? "bg-primary-500" : "bg-gray-200"
+                form.isActive ? "bg-primary-500" : "bg-gray-200"
               }`}
             >
               <span
                 className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform ${
-                  form.active ? "translate-x-5" : "translate-x-0"
+                  form.isActive ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </button>
@@ -338,29 +353,27 @@ export default function AiSettingsPage() {
           <h2 className="mb-4 text-sm font-semibold text-gray-900">Provider Metrics</h2>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <div>
-              <p className="text-xs text-gray-500">Total Requests</p>
+              <p className="text-xs text-gray-500">AI Conversations</p>
               <p className="text-lg font-semibold text-gray-900">
-                {metrics.totalRequests.toLocaleString()}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Avg Latency</p>
-              <p className="text-lg font-semibold text-gray-900">
-                {metrics.avgLatencyMs > 0 ? `${metrics.avgLatencyMs}ms` : "\u2014"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Success Rate</p>
-              <p className="text-lg font-semibold text-gray-900">
-                {metrics.successRate > 0
-                  ? `${(metrics.successRate * 100).toFixed(1)}%`
-                  : "\u2014"}
+                {metrics.totalConversations.toLocaleString()}
               </p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Tokens Used</p>
               <p className="text-lg font-semibold text-gray-900">
-                {metrics.tokensUsed > 0 ? metrics.tokensUsed.toLocaleString() : "\u2014"}
+                {metrics.totalTokens > 0 ? metrics.totalTokens.toLocaleString() : "\u2014"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Total Cost</p>
+              <p className="text-lg font-semibold text-gray-900">
+                {metrics.totalCostUsd > 0 ? `$${metrics.totalCostUsd.toFixed(2)}` : "\u2014"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Handoff Rate</p>
+              <p className="text-lg font-semibold text-gray-900">
+                {metrics.totalConversations > 0 ? `${metrics.handoffRate.toFixed(1)}%` : "\u2014"}
               </p>
             </div>
           </div>

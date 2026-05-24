@@ -27,11 +27,13 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { provider, apiKey, modelName, isActive } = body as {
+    const { provider, apiKey, modelName, isActive, temperature, maxTokens } = body as {
       provider?: string;
       apiKey?: string;
       modelName?: string;
       isActive?: boolean;
+      temperature?: number;
+      maxTokens?: number;
     };
 
     // Validate provider name if provided
@@ -51,6 +53,19 @@ export async function PUT(
     if (apiKey !== undefined && apiKey.trim()) {
       // Rotate: encrypt the new key — old encrypted key is discarded
       data.apiKey = encrypt(apiKey.trim());
+    }
+
+    // Merge temperature/maxTokens into config JSON if either was provided
+    if (temperature !== undefined || maxTokens !== undefined) {
+      const prevConfig = (existing.config ?? {}) as { temperature?: number; maxTokens?: number };
+      const nextConfig: { temperature?: number; maxTokens?: number } = { ...prevConfig };
+      if (typeof temperature === "number" && temperature >= 0 && temperature <= 2) {
+        nextConfig.temperature = temperature;
+      }
+      if (typeof maxTokens === "number" && maxTokens > 0 && maxTokens <= 200000) {
+        nextConfig.maxTokens = Math.floor(maxTokens);
+      }
+      data.config = nextConfig;
     }
 
     // If activating this provider, deactivate all others first
@@ -78,6 +93,7 @@ export async function PUT(
         provider: true,
         modelName: true,
         isActive: true,
+        config: true,
         createdAt: true,
         updatedAt: true,
       },

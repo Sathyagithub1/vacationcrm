@@ -21,6 +21,7 @@ export async function GET(_request: NextRequest) {
         provider: true,
         modelName: true,
         isActive: true,
+        config: true,
         createdAt: true,
         updatedAt: true,
         // apiKey is intentionally excluded — never expose encrypted keys
@@ -47,10 +48,13 @@ export async function POST(request: NextRequest) {
     const { user, db } = await requirePermission("settings:ai");
 
     const body = await request.json();
-    const { provider, apiKey, modelName } = body as {
+    const { provider, apiKey, modelName, temperature, maxTokens, isActive } = body as {
       provider?: string;
       apiKey?: string;
       modelName?: string;
+      temperature?: number;
+      maxTokens?: number;
+      isActive?: boolean;
     };
 
     // Validation
@@ -72,16 +76,20 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const tempVal = typeof temperature === "number" && temperature >= 0 && temperature <= 2 ? temperature : 0.7;
+    const maxTokVal = typeof maxTokens === "number" && maxTokens > 0 && maxTokens <= 200000 ? Math.floor(maxTokens) : 2048;
+    const activate = isActive !== false; // default true
 
     const encryptedKey = encrypt(apiKey.trim());
 
-    // Deactivate all existing providers, then create the new active one
-    // Both operations run inside a transaction for atomicity.
+    // If activating, deactivate all existing providers inside the same transaction.
     const newProvider = await db.$transaction(async (tx) => {
-      await tx.aIProvider.updateMany({
-        where: { isActive: true },
-        data: { isActive: false },
-      });
+      if (activate) {
+        await tx.aIProvider.updateMany({
+          where: { isActive: true },
+          data: { isActive: false },
+        });
+      }
 
       return tx.aIProvider.create({
         data: {
@@ -89,13 +97,15 @@ export async function POST(request: NextRequest) {
           provider: provider as ProviderName,
           apiKey: encryptedKey,
           modelName: modelName.trim(),
-          isActive: true,
+          isActive: activate,
+          config: { temperature: tempVal, maxTokens: maxTokVal },
         },
         select: {
           id: true,
           provider: true,
           modelName: true,
           isActive: true,
+          config: true,
           createdAt: true,
           updatedAt: true,
           // apiKey excluded
