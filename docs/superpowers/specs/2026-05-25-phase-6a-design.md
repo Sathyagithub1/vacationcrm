@@ -40,7 +40,7 @@ Every inbound message — WhatsApp, Email, Messenger, Telegram, Website snippet,
 [1. Spam Filter]            ── 4 layers; hard-block on match, drop, log to SpamLog
         │
         ▼
-[2. Intake Normalizer]      ── Identify IntakeForm, apply fieldMap → canonical payload
+[2. Intake Normalizer]      ── Identify IntakeForm, apply fieldMap → canonical payload; seed canonicalFields.tags from IntakeForm.defaultTagIds; run AI language detection on free-text fields → canonicalFields.language
         │
         ▼
 [3. Dedup]                  ── Match by phone OR email; existing → append Activity, else continue
@@ -71,6 +71,7 @@ type IntakePayload = {
   intakeFormId?: string;
   canonicalFields?: { name?: string; phone?: string; email?: string;
                       language?: string; tourCode?: string; notes?: string;
+                      tags?: string[];                          // seeded from IntakeForm.defaultTagIds at step 2; tour tags merged in at step 5
                       // ... + tenant-configurable extras
                     };
   departmentId?: string;
@@ -346,7 +347,7 @@ Both routes log to `IntakeWebhookLog`. Signature verification when the source su
 - On first webhook from a new IntakeForm: capture the raw payload keys → call AI provider with a system prompt that asks "match these source keys to canonical Lead fields and return a JSON map".
 - Save proposed `fieldMap` on IntakeForm, set `fieldMappingConfirmed = false`.
 - Admin reviews + edits in `/settings/intake-forms/{id}/field-map`, clicks confirm → `status = ACTIVE`, `fieldMappingConfirmed = true`.
-- Subsequent submissions silently apply the map. Re-confirmation needed if AI detects new fields in payload (raise notification, do not auto-pause).
+- Subsequent submissions silently apply the map. **Re-confirmation trigger:** at intake time, compare incoming payload keys against `fieldMap` keys; if one or more unknown keys appear, raise a single notification (debounced per IntakeForm per 24 h) and queue a one-shot AI re-map proposal. The form continues operating with the existing map until admin confirms the update. Do **not** auto-pause and do **not** re-call AI on every webhook.
 
 #### Deduplication (strict merge)
 
@@ -366,7 +367,7 @@ Entry point: `assignLead(payload: IntakePayload): Promise<{ assigneeId: string; 
 |---|---|
 | `ROUND_ROBIN` | `User where tenantId, role=AGENT, departmentId=payload.departmentId, isActive=true, (onLeaveUntil IS NULL OR onLeaveUntil < now())` |
 | `LOAD_BALANCED` | Same filter; pick agent with min count of open Leads (status NOT IN CLOSED, WON, LOST) |
-| `SKILL_BASED` | Same base filter, then INTERSECT (agent.languages contains payload.canonicalFields.language) OR (agent.tags ∩ payload.canonical tags ≠ ∅). Empty intersection → fallback to base filter. |
+| `SKILL_BASED` | Same base filter, then INTERSECT (`agent.languages` contains `payload.canonicalFields.language`) OR (`agent.tags` ∩ `payload.canonicalFields.tags` ≠ ∅). `canonicalFields.tags` is the union of `IntakeForm.defaultTagIds` (seeded at step 2) and matched `Tour.tagIds` (seeded at step 5). Empty intersection → fallback to base filter. |
 | `AI_TIERED` | Read tier cutoffs from `AssignmentStrategy.config`; score lead via existing `LeadScore` flow if not already scored; map score → tier; pool = base filter ∩ `assignmentTier = N`. Empty tier → next lower tier. |
 | `NAMED_POOLS` | Iterate `AssignmentPool where isActive=true` ordered by `priority desc`; for each pool, check sourceMatch + departmentId compatibility with payload. First match → pool's `agentIds ∩ base filter`. No pool matches → base filter (department-only). |
 
@@ -404,7 +405,7 @@ Entry point: `assignLead(payload: IntakePayload): Promise<{ assigneeId: string; 
 
 Intake step 1. Layers run in order; first match short-circuits to BLOCK.
 
-1. **BLACKLIST** — direct identifier match. SQL: `SELECT 1 FROM spam_rules WHERE tenant_id=? AND type='BLACKLIST' AND is_active AND (expires_at IS NULL OR expires_at > now()) AND identifier=? AND (channels @> ARRAY[?] OR channels='{ALL}')`. Indexed on `(tenantId, type, identifier)`.
+1. **BLACKLIST** — direct identifier match. SQL: `SELECT 1 FROM spam_rules WHERE tenant_id=? AND type='BLACKLIST' AND is_active AND (expires_at IS NULL OR expires_at > now()) AND identifier=? AND (cardinality(channels)=0 OR channels @> ARRAY[?])`. Indexed on `(tenantId, type, identifier)`. **Convention used consistently across SpamRule:** an empty array on `channels` or `departmentIds` means "applies to all"; non-empty array means "applies only to listed values". No sentinel strings.
 2. **RATE_LIMIT** — for each active RATE_LIMIT rule with matching channel, count messages from this `senderIdentifier` in the last `windowSeconds` (Redis sorted-set per sender, TTL = window). If count ≥ `threshold`, auto-create a BLACKLIST rule with `expiresAt = now() + blockSeconds`, log block.
 3. **PATTERN** — for each active PATTERN rule matching channel, test against the payload's text fields. Regex pre-compiled and cached per tenant in Redis with 5-minute TTL.
 4. **AI** — call AI provider with `IsThisSpam(text) -> { isSpam: bool, confidence: float }`. Block if `confidence >= rule.aiThreshold` (default 0.95). Result cached by `sha256(text)` for 1 hour to avoid duplicate cost.
@@ -485,7 +486,7 @@ All write endpoints call `requireAuth()` / `requirePermission()` per the existin
 Under existing `/settings` shell, four new top-level pages:
 
 - `/settings/intake-forms` — list (name, source, status, last-submission), per-form detail with field-map editor, "Test with last payload" button, pause/activate
-- `/settings/assignment` — strategy picker (radio buttons, 5 options) + per-strategy config sub-form. For NAMED_POOLS, pool manager with multi-select agent picker (live list from `/api/users/agents` filtered by AGENT role and tenant); for AI_TIERED, cutoffs + tier-count + agent-tier assignment grid.
+- `/settings/assignment` — strategy picker (radio buttons, 5 options) + per-strategy config sub-form. For NAMED_POOLS, pool manager with multi-select agent picker (live list from `/api/users/agents` filtered by AGENT role and tenant). For AI_TIERED, three controls: (a) tier count (2 or 3), (b) numeric cutoffs between tiers, (c) a single-tier assignment column on the agents table — each agent has exactly one `assignmentTier` value (1, 2, or 3). No many-to-many tier membership.
 - `/settings/tours` — table list with capacity bars, status filter; create/edit modal; booking sub-table per tour
 - `/settings/spam` — rules table grouped by type, "Add rule" wizard, spam log viewer (date range + channel filter)
 
@@ -536,7 +537,8 @@ UI follows existing Tailwind v4 Sunset Orange theme. No new design tokens. Form 
 - `e2e/tour-sold-out.spec.ts` — admin creates tour with capacity 2, 2 bookings → status flips SOLD_OUT, new enquiry triggers AI mini-flow + HIGH priority + sold-out tag.
 
 ### Load
-- `tests/load/intake-burst.test.ts` — 100 concurrent webhook intakes (50 unique senders); assert no duplicate Leads, all assignments distributed within ±15% of even.
+- `tests/load/intake-burst-dedup.test.ts` — 100 concurrent webhook intakes from **50 unique senders** (each sender submitting twice). Strategy: `ROUND_ROBIN`. Assertions: exactly 50 new Leads created (dedup wins on second submission), 50 `LeadActivity { type: REPEAT_INQUIRY }` rows written, no duplicate Customer rows for any phone/email.
+- `tests/load/intake-burst-distribution.test.ts` — 100 concurrent webhook intakes from **100 unique senders** (no dedup contention). Strategy: `ROUND_ROBIN`. Assertion: assignments distributed within ±15% of perfectly even across 5 active agents in the target department. Repeated with `LOAD_BALANCED` for comparison (expected variance ≤ ±10%).
 
 ### Pass criteria
 - Unit ≥85% line coverage on new modules
