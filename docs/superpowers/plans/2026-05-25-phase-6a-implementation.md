@@ -128,6 +128,15 @@ model IntakeWebhookLog {
 In `Tenant`: add `intakeForms IntakeForm[]`
 In `Department`: add `intakeForms IntakeForm[]`
 
+- [ ] **Step 4b: Add per-tenant intake-webhook token to `Tenant`**
+
+Required by Tasks 32 and 34 (webhook URL path resolves tenant by this token).
+
+```prisma
+// add to Tenant model
+intakeToken String @unique @default(cuid()) @map("intake_token")
+```
+
 - [ ] **Step 5: Generate + run migration**
 
 ```bash
@@ -448,22 +457,9 @@ tour       Tour?       @relation(fields: [tourId], references: [id])
 intakeForm IntakeForm? @relation(fields: [intakeFormId], references: [id])
 ```
 
-Add a new value to the existing `LeadStatus` enum (one new value `INTAKE_PENDING_REVIEW`):
+Add a new value to the existing `LeadStatus` enum — only **add** `INTAKE_PENDING_REVIEW`, do not regenerate the enum block. Prisma will emit `ALTER TYPE "LeadStatus" ADD VALUE 'INTAKE_PENDING_REVIEW';` in the migration SQL. After editing the schema, verify the generated SQL contains only `ALTER TYPE ... ADD VALUE` (NOT a `DROP TYPE` / `CREATE TYPE`); if Prisma proposes a destructive change, abort and ask for help — Postgres enums cannot be regenerated wholesale without rewriting every row that uses the column.
 
-```prisma
-enum LeadStatus {
-  NEW
-  CONTACTED
-  QUALIFIED
-  NEGOTIATING
-  WON
-  LOST
-  CLOSED
-  INTAKE_PENDING_REVIEW
-}
-```
-
-(Adjust existing enum values to match the file's current set — only **add** `INTAKE_PENDING_REVIEW`.)
+Same one-line ADD for `LeadActivityType` — add `REPEAT_INQUIRY` (needed by Task 17) and `ASSIGNED` (needed by Task 30, only if not already present).
 
 - [ ] **Step 3: Add partial unique indexes for dedup race protection**
 
@@ -583,21 +579,21 @@ import type { IntakePayload, IntakeStages } from './types';
 export async function runPipeline(payload: IntakePayload, stages: IntakeStages): Promise<IntakePayload> {
   let p = await stages.spam(payload);
   if (p.spamCheck && !p.spamCheck.passed) return p;
+
   p = await stages.normalize(p);
-  if (p.dedupResult?.existingLeadId) {
-    // dedup happens BEFORE department, but if existing lead found we stop after appending activity
-    p = await stages.dedup(p);
-    return p;
-  }
+
   p = await stages.dedup(p);
-  if (p.dedupResult?.existingLeadId) return p;
+  if (p.dedupResult?.existingLeadId) return p; // duplicate — REPEAT_INQUIRY activity already appended
+
   p = await stages.department(p);
   p = await stages.tour(p);
-  p = await stages.assignment(p);
-  p = await stages.dispatch(p);
+  p = await stages.dispatch(p);   // creates Lead/Conversation, sets p.leadId
+  p = await stages.assignment(p); // requires p.leadId — assigns to agent
   return p;
 }
 ```
+
+> **Stage order note:** `dispatch` runs before `assignment` because assignment needs a persisted `leadId` to write `Lead.assigneeId` + `LeadActivity`. The orchestrator wires them in this order; the §2 spec diagram lists assignment before dispatch for narrative clarity but execution order is dispatch-then-assignment.
 
 - [ ] **Step 5: Run test — expect pass**
 
@@ -1150,12 +1146,18 @@ git commit -m "feat(6a/spam): orchestrator chains 4 layers + writes SpamLog"
 - Create: `src/modules/intake/normalize/field-map.ts`
 - Create: `src/modules/intake/normalize/field-map.test.ts`
 
-- [ ] **Step 1: Test**
+- [ ] **Step 1: Test (mock the AI provider — do NOT call real LLM in tests)**
 
 ```typescript
 // src/modules/intake/normalize/field-map.test.ts
 import { describe, it, expect, vi } from 'vitest';
 import { proposeFieldMap, applyFieldMap, detectUnknownKeys } from './field-map';
+
+vi.mock('@/modules/ai/provider', () => ({
+  getAIProvider: vi.fn().mockResolvedValue({
+    completeJson: vi.fn().mockResolvedValue({ full_name: 'name', mobile_no: 'phone', email: 'email' }),
+  }),
+}));
 
 describe('proposeFieldMap', () => {
   it('asks AI to map raw keys to canonical keys', async () => {
@@ -1983,17 +1985,38 @@ export async function dispatch(payload: IntakePayload): Promise<IntakePayload> {
   if (payload.dedupResult?.existingLeadId) return payload; // dedup already handled it
 
   const cf = payload.canonicalFields ?? {};
-  // upsert Customer
-  const customer = await prisma.customer.upsert({
-    where: { tenantId_phone: { tenantId: payload.tenantId, phone: String(cf.phone ?? payload.sender.phone ?? `unknown-${payload.webhookLogId}`) } },
-    update: { name: String(cf.name ?? '') || undefined, email: cf.email ? String(cf.email) : undefined },
-    create: {
-      tenantId: payload.tenantId,
-      name: String(cf.name ?? 'Unknown'),
-      phone: cf.phone ? String(cf.phone) : null,
-      email: cf.email ? String(cf.email) : null,
-    },
-  });
+  // upsert Customer — use findFirst-then-create-with-P2002-catch because the partial
+  // unique indexes from Task 6 (WHERE phone IS NOT NULL) are NOT a Prisma @@unique
+  // and so cannot be used as an upsert `where` key. The unique partial index still
+  // protects against true race conditions at the DB layer.
+  const phone = cf.phone ? String(cf.phone) : null;
+  const email = cf.email ? String(cf.email) : null;
+  let customer = phone || email
+    ? await prisma.customer.findFirst({
+        where: { tenantId: payload.tenantId, OR: [
+          phone ? { phone } : undefined,
+          email ? { email } : undefined,
+        ].filter(Boolean) as any },
+      })
+    : null;
+  if (!customer) {
+    try {
+      customer = await prisma.customer.create({ data: {
+        tenantId: payload.tenantId,
+        name: String(cf.name ?? 'Unknown'),
+        phone, email,
+      }});
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        customer = await prisma.customer.findFirstOrThrow({
+          where: { tenantId: payload.tenantId, OR: [
+            phone ? { phone } : undefined,
+            email ? { email } : undefined,
+          ].filter(Boolean) as any },
+        });
+      } else throw e;
+    }
+  }
 
   const form = payload.intakeFormId ? await prisma.intakeForm.findUnique({ where: { id: payload.intakeFormId } }) : null;
   const needsReview = form ? !form.fieldMappingConfirmed : false;
