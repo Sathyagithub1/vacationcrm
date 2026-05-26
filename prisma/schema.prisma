@@ -46,6 +46,8 @@ enum LeadActivityType {
   CALL
   EMAIL
   SYSTEM
+  REPEAT_INQUIRY
+  ASSIGNED
 }
 
 enum FollowUpType {
@@ -394,6 +396,10 @@ model User {
   notificationPreferences Json?     @map("notification_preferences")
   isActive                Boolean   @default(true) @map("is_active")
   lastSeenAt              DateTime? @map("last_seen_at")
+  languages               String[]  @default([])
+  tags                    String[]  @default([])
+  assignmentTier          Int?      @map("assignment_tier")
+  onLeaveUntil            DateTime? @map("on_leave_until")
   createdAt               DateTime  @default(now()) @map("created_at")
 
   tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -551,6 +557,9 @@ model Lead {
   assignedTo         String?      @map("assigned_to")
   priority           LeadPriority @default(MEDIUM) @map("priority")
   isFutureInterest   Boolean      @default(false) @map("is_future_interest")
+  language           String?
+  tourId             String?      @map("tour_id")
+  intakeFormId       String?      @map("intake_form_id")
   createdAt          DateTime     @default(now()) @map("created_at")
   updatedAt          DateTime     @updatedAt @map("updated_at")
 
@@ -559,6 +568,8 @@ model Lead {
   customer      Customer       @relation(fields: [customerId], references: [id])
   stage         PipelineStage  @relation(fields: [stageId], references: [id])
   assignee      User?          @relation("LeadAssignee", fields: [assignedTo], references: [id])
+  tour          Tour?          @relation(fields: [tourId], references: [id])
+  intakeForm    IntakeForm?    @relation(fields: [intakeFormId], references: [id])
   activities    LeadActivity[]
   followUps     FollowUp[]
   callbacks     Callback[]
@@ -1174,6 +1185,7 @@ model IntakeForm {
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   department Department? @relation(fields: [departmentId], references: [id])
+  leads      Lead[]
 
   @@unique([tenantId, source, externalId])
   @@index([tenantId, status])
@@ -1267,6 +1279,7 @@ model Tour {
   tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   department Department    @relation(fields: [departmentId], references: [id])
   bookings   TourBooking[]
+  leads      Lead[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
