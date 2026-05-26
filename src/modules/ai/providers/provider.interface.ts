@@ -33,8 +33,19 @@ export interface ChatParams {
   temperature?: number;
 }
 
+export interface SpamClassification {
+  isSpam: boolean;
+  confidence: number; // [0, 1]
+}
+
 export interface AIProvider {
   id: string;
   chat(params: ChatParams): AsyncGenerator<ChatChunk>;
   generateEmbedding(text: string): Promise<number[]>;
+  /**
+   * Classify whether a piece of customer text is spam.
+   * Implementations should call the underlying model with a fixed prompt and
+   * parse a JSON `{ isSpam, confidence }` response.
+   */
+  classify(text: string): Promise<SpamClassification>;
 }

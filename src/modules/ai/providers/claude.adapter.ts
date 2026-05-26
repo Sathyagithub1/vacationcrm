@@ -4,8 +4,10 @@ import type {
   ChatChunk,
   ChatMessage,
   ChatParams,
+  SpamClassification,
   ToolDefinition,
 } from "./provider.interface";
+import { parseSpamClassification, SPAM_CLASSIFY_PROMPT } from "./classify-prompt";
 
 export class ClaudeAdapter implements AIProvider {
   readonly id = "CLAUDE";
@@ -137,5 +139,18 @@ export class ClaudeAdapter implements AIProvider {
     throw new Error(
       "Claude does not support embeddings directly. Use OpenAI (text-embedding-3-small) or Gemini (text-embedding-004) for embedding generation."
     );
+  }
+
+  async classify(text: string): Promise<SpamClassification> {
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 100,
+      temperature: 0,
+      system: SPAM_CLASSIFY_PROMPT,
+      messages: [{ role: "user", content: text }],
+    });
+    const block = response.content.find((c) => c.type === "text");
+    const raw = block && block.type === "text" ? block.text : "";
+    return parseSpamClassification(raw);
   }
 }

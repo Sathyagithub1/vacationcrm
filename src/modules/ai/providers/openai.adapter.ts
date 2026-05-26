@@ -4,8 +4,10 @@ import type {
   ChatChunk,
   ChatMessage,
   ChatParams,
+  SpamClassification,
   ToolDefinition,
 } from "./provider.interface";
+import { parseSpamClassification, SPAM_CLASSIFY_PROMPT } from "./classify-prompt";
 
 export class OpenAIAdapter implements AIProvider {
   readonly id = "OPENAI";
@@ -153,5 +155,19 @@ export class OpenAIAdapter implements AIProvider {
       encoding_format: "float",
     });
     return response.data[0].embedding;
+  }
+
+  async classify(text: string): Promise<SpamClassification> {
+    const completion = await this.client.chat.completions.create({
+      model: this.model,
+      max_tokens: 100,
+      temperature: 0,
+      messages: [
+        { role: "system", content: SPAM_CLASSIFY_PROMPT },
+        { role: "user", content: text },
+      ],
+    });
+    const raw = completion.choices[0]?.message?.content ?? "";
+    return parseSpamClassification(raw);
   }
 }
