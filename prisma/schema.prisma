@@ -283,6 +283,12 @@ enum AssignmentStrategyType {
   NAMED_POOLS
 }
 
+enum TagScope {
+  CUSTOMER
+  LEAD
+  BOTH
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -342,6 +348,7 @@ model Tenant {
   intakeForms        IntakeForm[]
   assignmentStrategy AssignmentStrategy?
   assignmentPools    AssignmentPool[]
+  tags               Tag[]
 
   @@map("tenants")
 }
@@ -1194,4 +1201,17 @@ model AssignmentCursor {
 
   @@unique([tenantId, scope])
   @@map("assignment_cursors")
+}
+
+model Tag {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  color     String?
+  scope     TagScope
+  createdAt DateTime @default(now()) @map("created_at")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name, scope])
+  @@map("tags")
 }
