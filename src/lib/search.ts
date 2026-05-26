@@ -23,7 +23,7 @@ export interface SearchResults {
   leads: Array<{
     id: string;
     customer: { name: string };
-    department: { name: string };
+    department: { name: string } | null;
     stage: { name: string };
   }>;
   conversations: Array<{

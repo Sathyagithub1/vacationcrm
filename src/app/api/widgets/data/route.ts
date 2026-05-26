@@ -284,7 +284,7 @@ async function fetchWidgetData(
         mobile: l.customer.mobile,
         stage: l.stage.name,
         stageColor: l.stage.color,
-        department: l.department.name,
+        department: l.department?.name ?? "Unassigned",
         assignee: l.assignee?.name || "Unassigned",
         destination: l.destination,
         createdAt: l.createdAt,

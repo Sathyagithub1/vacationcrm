@@ -1310,11 +1310,19 @@ export async function normalize(payload: IntakePayload): Promise<IntakePayload> 
       name: `Auto: ${payload.source} ${externalId.slice(0, 12)}`,
       fieldMap: proposed, fieldMappingConfirmed: false, status: 'PENDING_REVIEW',
     }});
-    await prisma.notification.create({ data: {
-      tenantId: payload.tenantId, type: 'INTAKE_FORM_PENDING_REVIEW',
-      title: 'New form awaiting field-map review', severity: 'INFO',
-      meta: { intakeFormId: form.id },
-    }});
+    // Notification.userId is REQUIRED (NOT NULL) — fan out to all COMPANY_ADMINs.
+    const admins = await prisma.user.findMany({
+      where: { tenantId: payload.tenantId, role: 'COMPANY_ADMIN', isActive: true },
+      select: { id: true },
+    });
+    await Promise.all(admins.map(a => prisma.notification.create({ data: {
+      tenantId: payload.tenantId,
+      userId: a.id,
+      type: 'INTAKE_FORM_PENDING_REVIEW',
+      title: 'New form awaiting field-map review',
+      body: `Auto-created IntakeForm for source ${payload.source} needs field-map confirmation.`,
+      data: { intakeFormId: form!.id, source: payload.source, externalId },
+    }})));
   }
 
   const map = (form?.fieldMap as Record<string, string>) ?? {};
@@ -1334,11 +1342,19 @@ export async function normalize(payload: IntakePayload): Promise<IntakePayload> 
       const dbKey = `intake:keydiff:${form.id}`;
       const setRecently = await redis.set(dbKey, '1', 'EX', 86400, 'NX');
       if (setRecently === 'OK') {
-        await prisma.notification.create({ data: {
-          tenantId: payload.tenantId, type: 'INTAKE_FORM_KEY_DIFF',
-          title: `New keys on ${form.name}: ${unknown.join(', ')}`,
-          severity: 'WARN', meta: { intakeFormId: form.id, unknown },
-        }});
+        // Notification.userId is REQUIRED — fan out to all COMPANY_ADMINs.
+        const admins = await prisma.user.findMany({
+          where: { tenantId: payload.tenantId, role: 'COMPANY_ADMIN', isActive: true },
+          select: { id: true },
+        });
+        await Promise.all(admins.map(a => prisma.notification.create({ data: {
+          tenantId: payload.tenantId,
+          userId: a.id,
+          type: 'INTAKE_FORM_KEY_DIFF',
+          title: `New keys on ${form!.name}`,
+          body: `Unknown keys received: ${unknown.join(', ')}. Review and update field-map.`,
+          data: { intakeFormId: form!.id, unknown },
+        }})));
       }
     }
   }
@@ -1413,10 +1429,17 @@ export async function dedupCheck(payload: IntakePayload): Promise<IntakePayload>
 
   if (!existing) return payload;
 
+  // LeadActivity shape: { tenantId (required), leadId (required), userId?, type, content: Json? }
+  // There is no `source` or `meta` column — everything contextual goes into `content`.
   await prisma.leadActivity.create({ data: {
-    leadId: existing.id, type: 'REPEAT_INQUIRY',
-    source: payload.source as any,
-    meta: { rawPayload: payload.rawPayload, intakeFormId: payload.intakeFormId },
+    tenantId: payload.tenantId,
+    leadId: existing.id,
+    type: 'REPEAT_INQUIRY',
+    content: {
+      source: payload.source,
+      rawPayload: payload.rawPayload,
+      intakeFormId: payload.intakeFormId ?? null,
+    },
   }});
 
   return { ...payload, dedupResult: { existingLeadId: existing.id, existingCustomerId: existing.customerId } };
@@ -1431,7 +1454,7 @@ git add src/modules/intake/dedup
 git commit -m "feat(6a/dedup): strict-merge by phone OR email + REPEAT_INQUIRY activity"
 ```
 
-> **Note:** LeadActivity already exists; verify `REPEAT_INQUIRY` is a valid `LeadActivityType` enum value. If not, add it in a follow-up enum-extension migration (small) before this commit, or extend Task 6.
+> **Note:** `LeadActivityType.REPEAT_INQUIRY` is already present in the schema (verified during Phase 6a Pass 2 reconciliation).
 
 ---
 
@@ -1887,9 +1910,15 @@ export async function fallbackAssign(tenantId: string, departmentId?: string): P
   const admin = await prisma.user.findFirst({ where: { tenantId, role: 'COMPANY_ADMIN', isActive: true } });
   if (!admin) throw new Error(`No COMPANY_ADMIN available for tenant ${tenantId}`);
   const admins = await prisma.user.findMany({ where: { tenantId, role: 'COMPANY_ADMIN', isActive: true }, select: { id: true } });
+  // Notification shape: { tenantId, userId (REQUIRED), type, title, body, data: Json? }.
+  // There is no `severity` column; severity-style metadata goes into `data`.
   await Promise.all(admins.map(a => prisma.notification.create({ data: {
-    tenantId, userId: a.id, type: 'ASSIGNMENT_FALLBACK', severity: 'HIGH',
+    tenantId,
+    userId: a.id,
+    type: 'ASSIGNMENT_FALLBACK',
     title: `Lead routed to admin: no active agents in ${departmentId ?? '(no dept)'}`,
+    body: `Assignment ladder exhausted — review department staffing for ${departmentId ?? 'unassigned'}.`,
+    data: { departmentId: departmentId ?? null, severity: 'HIGH' },
   }})));
   return { agentId: admin.id, reason: 'fallback:company-admin' };
 }
@@ -1946,10 +1975,14 @@ export async function assignLead(payload: IntakePayload): Promise<IntakePayload>
     const fb = await fallbackAssign(payload.tenantId, payload.departmentId);
     assignee = fb.agentId; reason = fb.reason;
   }
-  await prisma.lead.update({ where: { id: payload.leadId }, data: { assigneeId: assignee } });
+  // Lead FK column is `assignedTo` (mapped to assigned_to), not `assigneeId`.
+  await prisma.lead.update({ where: { id: payload.leadId }, data: { assignedTo: assignee } });
+  // LeadActivity needs tenantId (required) and uses `content` (Json?), not `meta`.
   await prisma.leadActivity.create({ data: {
-    leadId: payload.leadId, type: 'ASSIGNMENT',
-    meta: { strategy: strategy?.type ?? 'NONE', reason, assigneeId: assignee },
+    tenantId: payload.tenantId,
+    leadId: payload.leadId,
+    type: 'ASSIGNMENT',
+    content: { strategy: strategy?.type ?? 'NONE', reason, assigneeId: assignee },
   }});
   return payload;
 }
@@ -1984,6 +2017,24 @@ import { prisma } from '@/lib/prisma';
 
 export async function dispatch(payload: IntakePayload): Promise<IntakePayload> {
   if (payload.dedupResult?.existingLeadId) return payload; // dedup already handled it
+
+  // Resolve the default PipelineStage for this tenant — Lead.stageId is REQUIRED.
+  // PipelineStage has an `isDefault` boolean (verified). Fall back to lowest
+  // `position` if no row is flagged default. Throw if tenant has no stages
+  // (clear misconfiguration — surface it instead of silently failing).
+  const defaultStage =
+    (await prisma.pipelineStage.findFirst({
+      where: { tenantId: payload.tenantId, isDefault: true },
+    })) ??
+    (await prisma.pipelineStage.findFirst({
+      where: { tenantId: payload.tenantId },
+      orderBy: { position: 'asc' },
+    }));
+  if (!defaultStage) {
+    throw new Error(
+      `dispatch: tenant ${payload.tenantId} has no PipelineStage rows — tenant misconfigured.`,
+    );
+  }
 
   const cf = payload.canonicalFields ?? {};
   // Canonical payload key stays `phone`; the Customer column is `mobile` (NOT NULL,
@@ -2025,9 +2076,13 @@ export async function dispatch(payload: IntakePayload): Promise<IntakePayload> {
   const form = payload.intakeFormId ? await prisma.intakeForm.findUnique({ where: { id: payload.intakeFormId } }) : null;
   const needsReview = form ? !form.fieldMappingConfirmed : false;
 
+  // Lead.priority uses LeadPriority enum: LOW | MEDIUM | HIGH | VIP.
+  // Lead.stageId is REQUIRED (resolved above).
+  // Lead.departmentId is now nullable (migration lead_dept_nullable_and_notification_types).
   const lead = await prisma.lead.create({ data: {
     tenantId: payload.tenantId,
     customerId: customer.id,
+    stageId: defaultStage.id,
     source: payload.source,
     needsFieldMapReview: needsReview,
     priority: payload.tourMatch?.soldOut ? 'HIGH' : 'MEDIUM',
@@ -2042,10 +2097,14 @@ export async function dispatch(payload: IntakePayload): Promise<IntakePayload> {
     channel: payload.source as any,
   }});
 
+  // Message shape: { tenantId (required), conversationId, senderType, senderId?, content, messageType, fileUrl?, createdAt }.
+  // No `direction` / `body` / `sentAt` columns — direction is implicit from senderType.
   await prisma.message.create({ data: {
-    conversationId: conv.id, direction: 'INBOUND',
-    body: String(cf.notes ?? JSON.stringify(payload.rawPayload).slice(0, 1000)),
-    sentAt: new Date(),
+    tenantId: payload.tenantId,
+    conversationId: conv.id,
+    senderType: 'CUSTOMER',
+    content: String(cf.notes ?? JSON.stringify(payload.rawPayload).slice(0, 1000)),
+    messageType: 'TEXT',
   }});
 
   await prisma.intakeWebhookLog.update({ where: { id: payload.webhookLogId }, data: { processed: true, leadId: lead.id } });
@@ -2083,8 +2142,6 @@ git commit -m "feat(6a/dispatch): upsert customer + create lead + conversation +
 git add src/app/api/webhooks/intake src/lib/intake-token.ts prisma
 git commit -m "feat(6a/api): POST /api/webhooks/intake/{tenantToken} universal intake"
 ```
-
-> **Schema follow-up:** Add `Tenant.intakeToken String @unique @default(cuid())` to migration 001 or in a small follow-up migration; regenerate Prisma Client.
 
 ---
 

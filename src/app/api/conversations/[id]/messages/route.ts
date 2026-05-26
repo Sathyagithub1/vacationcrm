@@ -10,7 +10,7 @@ import { getMessages, sendMessage } from "@/modules/conversations/chat.service";
 function checkConversationAccess(
   conversation: {
     assignedAgentId: string | null;
-    lead: { departmentId: string; assignedTo: string | null } | null;
+    lead: { departmentId: string | null; assignedTo: string | null } | null;
   },
   user: { role: string; id: string; departmentId: string | null | undefined }
 ): NextResponse | null {

@@ -62,7 +62,7 @@ async function refreshConversionStats(
     key: string;
     getValue: (lead: (typeof leads)[0]) => string;
   }> = [
-    { dimension: "DEPARTMENT", key: "departmentId", getValue: (l) => l.departmentId },
+    { dimension: "DEPARTMENT", key: "departmentId", getValue: (l) => l.departmentId ?? "unassigned" },
     { dimension: "SOURCE", key: "source", getValue: (l) => l.source },
     { dimension: "AGENT", key: "assignedTo", getValue: (l) => l.assignedTo || "unassigned" },
   ];
