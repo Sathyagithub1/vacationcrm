@@ -116,6 +116,9 @@ enum NotificationType {
   ESCALATION
   CALLBACK
   NEW_MESSAGE
+  ASSIGNMENT_FALLBACK
+  INTAKE_FORM_PENDING_REVIEW
+  INTAKE_FORM_KEY_DIFF
 }
 
 enum EscalationReason {
@@ -546,7 +549,7 @@ model Customer {
 model Lead {
   id                 String       @id @default(uuid()) @map("id")
   tenantId           String       @map("tenant_id")
-  departmentId       String       @map("department_id")
+  departmentId       String?      @map("department_id")
   customerId         String       @map("customer_id")
   destination        String?      @map("destination")
   travelDate         DateTime?    @map("travel_date")
@@ -565,7 +568,7 @@ model Lead {
   updatedAt          DateTime     @updatedAt @map("updated_at")
 
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  department    Department     @relation(fields: [departmentId], references: [id])
+  department    Department?    @relation(fields: [departmentId], references: [id])
   customer      Customer       @relation(fields: [customerId], references: [id])
   stage         PipelineStage  @relation(fields: [stageId], references: [id])
   assignee      User?          @relation("LeadAssignee", fields: [assignedTo], references: [id])
