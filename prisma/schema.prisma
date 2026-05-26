@@ -23,6 +23,13 @@ enum LeadSource {
   FB
   IG
   MANUAL
+  META_LEAD_AD
+  GOOGLE_FORMS
+  WEBSITE_SNIPPET
+  FORM_BUILDER
+  EMAIL
+  MESSENGER
+  TELEGRAM
 }
 
 enum LeadPriority {
@@ -260,6 +267,14 @@ enum WeightCategory {
   CONVERSATION
 }
 
+// ─── Phase 6a: Intake & Routing Enums ─────────────────────────────────────────
+
+enum IntakeFormStatus {
+  PENDING_REVIEW
+  ACTIVE
+  PAUSED
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -279,6 +294,7 @@ model Tenant {
   currency             String             @default("INR") @map("currency")
   address              String?            @map("address")
   subscriptionStatus   SubscriptionStatus @default(ACTIVE) @map("subscription_status")
+  intakeToken          String             @unique @default(cuid()) @map("intake_token")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
 
@@ -315,6 +331,7 @@ model Tenant {
   predictions        Prediction[]
   scoringWeights     ScoringWeight[]
   conversionStats    ConversionStat[]
+  intakeForms        IntakeForm[]
 
   @@map("tenants")
 }
@@ -417,6 +434,7 @@ model Department {
   cannedResponses CannedResponse[]
   knowledgeBases  KnowledgeBase[]
   widgetConfigs   WidgetConfig[]
+  intakeForms     IntakeForm[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -1086,4 +1104,44 @@ model ConversionStat {
 
   @@index([tenantId, dimension])
   @@map("conversion_stats")
+}
+
+// ─── Phase 6a: Intake & Routing Models ────────────────────────────────────────
+
+model IntakeForm {
+  id                    String           @id @default(uuid())
+  tenantId              String           @map("tenant_id")
+  source                LeadSource
+  externalId            String           @map("external_id")
+  name                  String
+  departmentId          String?          @map("department_id")
+  defaultTagIds         String[]         @default([]) @map("default_tag_ids")
+  fieldMap              Json
+  fieldMappingConfirmed Boolean          @default(false) @map("field_mapping_confirmed")
+  status                IntakeFormStatus @default(PENDING_REVIEW)
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  @@unique([tenantId, source, externalId])
+  @@index([tenantId, status])
+  @@map("intake_forms")
+}
+
+model IntakeWebhookLog {
+  id             String      @id @default(uuid())
+  tenantId       String?     @map("tenant_id")
+  source         LeadSource?
+  endpoint       String
+  rawPayload     Json        @map("raw_payload")
+  signatureValid Boolean     @map("signature_valid")
+  processed      Boolean     @default(false)
+  errorMessage   String?     @map("error_message")
+  leadId         String?     @map("lead_id")
+  receivedAt     DateTime    @default(now()) @map("received_at")
+
+  @@index([tenantId, receivedAt])
+  @@map("intake_webhook_logs")
 }
