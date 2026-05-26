@@ -303,6 +303,17 @@ enum TourBookingStatus {
   WAITLISTED
 }
 
+enum SpamRuleType {
+  BLACKLIST
+  RATE_LIMIT
+  PATTERN
+  AI
+}
+
+enum SpamAction {
+  BLOCKED
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -364,6 +375,8 @@ model Tenant {
   assignmentPools    AssignmentPool[]
   tags               Tag[]
   tours              Tour[]
+  spamRules          SpamRule[]
+  spamLogs           SpamLog[]
 
   @@map("tenants")
 }
@@ -400,6 +413,7 @@ model User {
   auditLogs           AuditLog[]
   passwordResetTokens PasswordResetToken[]
   dashboardWidgets    DashboardWidget[]
+  spamRulesCreated    SpamRule[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1274,4 +1288,45 @@ model TourBooking {
 
   @@index([tourId, status])
   @@map("tour_bookings")
+}
+
+model SpamRule {
+  id            String       @id @default(uuid())
+  tenantId      String       @map("tenant_id")
+  type          SpamRuleType
+  channels      String[]     @default([])
+  departmentIds String[]     @default([]) @map("department_ids")
+  identifier    String
+  reason        String?
+  threshold     Int?
+  windowSeconds Int?         @map("window_seconds")
+  blockSeconds  Int?         @map("block_seconds")
+  aiThreshold   Float?       @map("ai_threshold")
+  createdById   String?      @map("created_by_id")
+  expiresAt     DateTime?    @map("expires_at")
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId, isActive])
+  @@index([tenantId, type, identifier])
+  @@map("spam_rules")
+}
+
+model SpamLog {
+  id               String     @id @default(uuid())
+  tenantId         String     @map("tenant_id")
+  channel          String
+  senderIdentifier String     @map("sender_identifier")
+  rawPayload       Json       @map("raw_payload")
+  matchedRuleId    String?    @map("matched_rule_id")
+  action           SpamAction
+  occurredAt       DateTime   @default(now()) @map("occurred_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, occurredAt])
+  @@map("spam_logs")
 }
