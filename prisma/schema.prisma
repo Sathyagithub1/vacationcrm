@@ -289,6 +289,20 @@ enum TagScope {
   BOTH
 }
 
+enum TourStatus {
+  DRAFT
+  ACTIVE
+  SOLD_OUT
+  CANCELLED
+  COMPLETED
+}
+
+enum TourBookingStatus {
+  CONFIRMED
+  CANCELLED
+  WAITLISTED
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -349,6 +363,7 @@ model Tenant {
   assignmentStrategy AssignmentStrategy?
   assignmentPools    AssignmentPool[]
   tags               Tag[]
+  tours              Tour[]
 
   @@map("tenants")
 }
@@ -453,6 +468,7 @@ model Department {
   widgetConfigs   WidgetConfig[]
   intakeForms     IntakeForm[]
   assignmentPools AssignmentPool[]
+  tours           Tour[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -500,6 +516,7 @@ model Customer {
   channels            CustomerChannel[]
   conversations       Conversation[]       @relation("ConversationCustomer")
   widgetVisitors      WidgetVisitor[]
+  tourBookings        TourBooking[]
 
   @@unique([tenantId, mobile])
   @@index([tenantId])
@@ -536,6 +553,7 @@ model Lead {
   fileUploads   FileUpload[]
   score         LeadScore?
   predictions   Prediction[]
+  tourBookings  TourBooking[]
 
   @@index([tenantId])
   @@index([tenantId, departmentId])
@@ -1214,4 +1232,46 @@ model Tag {
 
   @@unique([tenantId, name, scope])
   @@map("tags")
+}
+
+model Tour {
+  id           String     @id @default(uuid())
+  tenantId     String     @map("tenant_id")
+  code         String
+  name         String
+  description  String?
+  departmentId String     @map("department_id")
+  startDate    DateTime   @map("start_date")
+  endDate      DateTime   @map("end_date")
+  capacity     Int
+  sold         Int        @default(0)
+  status       TourStatus @default(ACTIVE)
+  tagIds       String[]   @default([]) @map("tag_ids")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department    @relation(fields: [departmentId], references: [id])
+  bookings   TourBooking[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@map("tours")
+}
+
+model TourBooking {
+  id         String            @id @default(uuid())
+  tourId     String            @map("tour_id")
+  leadId     String?           @map("lead_id")
+  customerId String            @map("customer_id")
+  seats      Int               @default(1)
+  status     TourBookingStatus @default(CONFIRMED)
+  bookedAt   DateTime          @default(now()) @map("booked_at")
+
+  tour     Tour     @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  lead     Lead?    @relation(fields: [leadId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([tourId, status])
+  @@map("tour_bookings")
 }
