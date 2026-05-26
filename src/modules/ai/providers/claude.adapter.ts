@@ -7,7 +7,11 @@ import type {
   SpamClassification,
   ToolDefinition,
 } from "./provider.interface";
-import { parseSpamClassification, SPAM_CLASSIFY_PROMPT } from "./classify-prompt";
+import {
+  parseFirstJsonObject,
+  parseSpamClassification,
+  SPAM_CLASSIFY_PROMPT,
+} from "./classify-prompt";
 
 export class ClaudeAdapter implements AIProvider {
   readonly id = "CLAUDE";
@@ -152,5 +156,21 @@ export class ClaudeAdapter implements AIProvider {
     const block = response.content.find((c) => c.type === "text");
     const raw = block && block.type === "text" ? block.text : "";
     return parseSpamClassification(raw);
+  }
+
+  async complete(prompt: string): Promise<string> {
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 1024,
+      temperature: 0,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const block = response.content.find((c) => c.type === "text");
+    return block && block.type === "text" ? block.text : "";
+  }
+
+  async completeJson(prompt: string): Promise<unknown> {
+    const raw = await this.complete(prompt);
+    return parseFirstJsonObject(raw);
   }
 }

@@ -26,3 +26,14 @@ export function parseSpamClassification(raw: string): SpamClassification {
     confidence: Math.max(0, Math.min(1, confidence)),
   };
 }
+
+/**
+ * Extract the first JSON object (`{...}`) found in a raw model response. Tolerates
+ * surrounding prose and code fences. Throws if no valid JSON object is found.
+ * Used by the AIProvider.completeJson() implementations across all adapters.
+ */
+export function parseFirstJsonObject(raw: string): unknown {
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error(`No JSON object in response: ${raw}`);
+  return JSON.parse(match[0]);
+}

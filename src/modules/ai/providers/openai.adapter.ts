@@ -7,7 +7,11 @@ import type {
   SpamClassification,
   ToolDefinition,
 } from "./provider.interface";
-import { parseSpamClassification, SPAM_CLASSIFY_PROMPT } from "./classify-prompt";
+import {
+  parseFirstJsonObject,
+  parseSpamClassification,
+  SPAM_CLASSIFY_PROMPT,
+} from "./classify-prompt";
 
 export class OpenAIAdapter implements AIProvider {
   readonly id = "OPENAI";
@@ -169,5 +173,20 @@ export class OpenAIAdapter implements AIProvider {
     });
     const raw = completion.choices[0]?.message?.content ?? "";
     return parseSpamClassification(raw);
+  }
+
+  async complete(prompt: string): Promise<string> {
+    const completion = await this.client.chat.completions.create({
+      model: this.model,
+      max_tokens: 1024,
+      temperature: 0,
+      messages: [{ role: "user", content: prompt }],
+    });
+    return completion.choices[0]?.message?.content ?? "";
+  }
+
+  async completeJson(prompt: string): Promise<unknown> {
+    const raw = await this.complete(prompt);
+    return parseFirstJsonObject(raw);
   }
 }
