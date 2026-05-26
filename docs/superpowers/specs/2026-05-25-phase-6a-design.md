@@ -280,10 +280,12 @@ assignmentTier    Int?                               // 1 / 2 / 3 — for AI_TIE
 onLeaveUntil      DateTime?                         // null = available
 
 // Lead additions
-language          String?                            // detected language ISO
-tourId            String?
-intakeFormId      String?
+language              String?                        // detected language ISO
+tourId                String?
+intakeFormId          String?
+needsFieldMapReview   Boolean  @default(false)       // true when the IntakeForm's fieldMap is not yet admin-confirmed
 // existing priority field (LeadPriority enum) reused
+// Note: Lead state is tracked via `stageId → PipelineStage`. There is no LeadStatus enum.
 
 // LeadSource enum additions (extend, do not break existing rows)
 META_LEAD_AD
@@ -306,6 +308,15 @@ Five separate Prisma migrations (one per concern) so any failure rolls back clea
 5. `20260525_005_spam_rules_and_logs`
 
 Plus an `ALTER TABLE` migration for User/Lead/LeadSource extensions (`20260525_006_user_lead_extensions`). All migrations are additive — no destructive changes to existing rows.
+
+**Dedup race-protection indexes.** The existing `customers` table uses `mobile` (NOT NULL) for the phone identifier, and already has a full unique index on `(tenant_id, mobile)` from migration 001 — so the dedup race for phone is already covered with no migration needed. Only `email` (nullable) requires a partial unique, added in migration 006:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_email_unique
+  ON customers (tenant_id, email) WHERE email IS NOT NULL;
+```
+
+A separate `needs_field_map_review` boolean flag is added to `leads` in a follow-up migration (`20260526_007_lead_needs_field_map_review`) so dispatch can mark a Lead as awaiting admin field-map review without inventing a new `LeadStatus` enum (Lead state lives in `stageId → PipelineStage`, not a status column).
 
 ---
 
@@ -351,10 +362,10 @@ Both routes log to `IntakeWebhookLog`. Signature verification when the source su
 
 #### Deduplication (strict merge)
 
-- Within intake step 3, run `SELECT lead.id FROM leads WHERE tenant_id = ? AND (phone = ? OR email = ?) ORDER BY created_at DESC LIMIT 1`.
+- The canonical key inside the intake pipeline is `phone` (source-agnostic), but the `customers` table column is `mobile`. Within intake step 3, join through Customer: `SELECT lead.id FROM leads l JOIN customers c ON c.id = l.customer_id WHERE l.tenant_id = ? AND (c.mobile = ? OR c.email = ?) ORDER BY l.created_at DESC LIMIT 1`.
 - If hit: create `LeadActivity { type: REPEAT_INQUIRY, source, rawPayload }` on the existing Lead and STOP — no new Lead, no new assignment.
 - Customer record reused; if multiple Customers match (legacy data), pick the most-recently-active and log a `WARN` audit entry for admin manual merge.
-- Unique constraint enforcement: add partial unique index `(tenant_id, phone) WHERE phone IS NOT NULL` and `(tenant_id, email) WHERE email IS NOT NULL` on `customers` to prevent race-created duplicates. Insert uses `ON CONFLICT DO NOTHING` semantics via Prisma upsert.
+- Unique constraint enforcement: the existing full unique on `(tenant_id, mobile)` (migration 001) already prevents race-created phone duplicates; migration 006 adds a partial unique on `(tenant_id, email) WHERE email IS NOT NULL` to do the same for the nullable email. Insert uses `ON CONFLICT DO NOTHING` semantics via Prisma upsert (catching `P2002` and re-fetching).
 
 ### 4.2 Assignment engine
 
@@ -375,7 +386,7 @@ Entry point: `assignLead(payload: IntakePayload): Promise<{ assigneeId: string; 
 4. **Fallback ladder:**
    - Strategy returns empty pool → re-run base filter (all active agents in dept).
    - Base filter empty → assign to first active `COMPANY_ADMIN`; create `Notification { type: ASSIGNMENT_FALLBACK, severity: HIGH }` for all COMPANY_ADMINs.
-5. **Persist:** `Lead.assigneeId = picked`; write `LeadActivity { type: ASSIGNED, meta: { strategy, reason } }`; advance cursor if used.
+5. **Persist:** `Lead.assigneeId = picked`; write `LeadActivity { type: ASSIGNMENT, meta: { strategy, reason } }`; advance cursor if used.
 
 **Concurrency:** Round-robin cursor updates wrapped in a Postgres advisory lock per `(tenantId, scope)` so concurrent intakes don't all assign to the same agent.
 
@@ -501,9 +512,9 @@ UI follows existing Tailwind v4 Sunset Orange theme. No new design tokens. Form 
 | Scenario | Behavior |
 |---|---|
 | Webhook signature invalid | Return 401, log `IntakeWebhookLog.signatureValid = false`, alert admin if same source fails 3× in 1 hour |
-| IntakeForm field-map missing | Lead created in `INTAKE_PENDING_REVIEW` status (new Lead status), admin notified; agent sees raw payload until map approved |
-| AI field-map call fails | Lead still created in `INTAKE_PENDING_REVIEW`; manual mapping required |
-| Dedup race (two near-simultaneous same-phone submissions) | Postgres unique constraint on `(tenantId, phone)` of `customers`; Prisma upsert catches `P2002` → resolve to existing |
+| IntakeForm field-map missing | Lead created with `needsFieldMapReview = true`, admin notified; agent sees raw payload until map approved |
+| AI field-map call fails | Lead still created with `needsFieldMapReview = true`; manual mapping required |
+| Dedup race (two near-simultaneous same-mobile submissions) | Existing Postgres unique on `(tenant_id, mobile)` of `customers`; Prisma create catches `P2002` → re-fetch existing |
 | Tour match below 0.8 confidence | Lead created without `tourId`; UI shows "Confirm tour?" banner; agent action persists tourId + writes `LeadActivity` |
 | Tour matched but SOLD_OUT and AI mini-flow LLM call fails | Skip mini-flow, still apply sold-out tag + priority HIGH, assign as normal; agent sees "AI mini-flow failed" badge |
 | No active agents in department, no COMPANY_ADMIN online | Lead remains in NEW status, every COMPANY_ADMIN emailed + push-notified |
@@ -537,7 +548,7 @@ UI follows existing Tailwind v4 Sunset Orange theme. No new design tokens. Form 
 - `e2e/tour-sold-out.spec.ts` — admin creates tour with capacity 2, 2 bookings → status flips SOLD_OUT, new enquiry triggers AI mini-flow + HIGH priority + sold-out tag.
 
 ### Load
-- `tests/load/intake-burst-dedup.test.ts` — 100 concurrent webhook intakes from **50 unique senders** (each sender submitting twice). Strategy: `ROUND_ROBIN`. Assertions: exactly 50 new Leads created (dedup wins on second submission), 50 `LeadActivity { type: REPEAT_INQUIRY }` rows written, no duplicate Customer rows for any phone/email.
+- `tests/load/intake-burst-dedup.test.ts` — 100 concurrent webhook intakes from **50 unique senders** (each sender submitting twice). Strategy: `ROUND_ROBIN`. Assertions: exactly 50 new Leads created (dedup wins on second submission), 50 `LeadActivity { type: REPEAT_INQUIRY }` rows written, no duplicate Customer rows for any `mobile` / `email`.
 - `tests/load/intake-burst-distribution.test.ts` — 100 concurrent webhook intakes from **100 unique senders** (no dedup contention). Strategy: `ROUND_ROBIN`. Assertion: assignments distributed within ±15% of perfectly even across 5 active agents in the target department. Repeated with `LOAD_BALANCED` for comparison (expected variance ≤ ±10%).
 
 ### Pass criteria

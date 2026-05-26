@@ -449,26 +449,26 @@ onLeaveUntil   DateTime? @map("on_leave_until")
 Add to `Lead`:
 
 ```prisma
-language       String?
-tourId         String?  @map("tour_id")
-intakeFormId   String?  @map("intake_form_id")
+language            String?
+tourId              String?  @map("tour_id")
+intakeFormId        String?  @map("intake_form_id")
+needsFieldMapReview Boolean  @default(false) @map("needs_field_map_review")
 
 tour       Tour?       @relation(fields: [tourId], references: [id])
 intakeForm IntakeForm? @relation(fields: [intakeFormId], references: [id])
 ```
 
-Add a new value to the existing `LeadStatus` enum — only **add** `INTAKE_PENDING_REVIEW`, do not regenerate the enum block. Prisma will emit `ALTER TYPE "LeadStatus" ADD VALUE 'INTAKE_PENDING_REVIEW';` in the migration SQL. After editing the schema, verify the generated SQL contains only `ALTER TYPE ... ADD VALUE` (NOT a `DROP TYPE` / `CREATE TYPE`); if Prisma proposes a destructive change, abort and ask for help — Postgres enums cannot be regenerated wholesale without rewriting every row that uses the column.
+> **Correction note:** there is no `LeadStatus` enum on `Lead` — Lead state is tracked via `stageId → PipelineStage`. The "field-map awaiting review" condition is therefore a boolean flag on the Lead row (`needsFieldMapReview`) rather than a new status enum value. Downstream code that previously read `Lead.status === 'INTAKE_PENDING_REVIEW'` should instead read `Lead.needsFieldMapReview === true` and keep the normal NEW/PENDING_REVIEW pipeline stage assignment.
 
-Same one-line ADD for `LeadActivityType` — add `REPEAT_INQUIRY` (needed by Task 17) and `ASSIGNED` (needed by Task 30, only if not already present).
+Same one-line ADD for `LeadActivityType` — add `REPEAT_INQUIRY` (needed by Task 17).
 
-- [ ] **Step 3: Add partial unique indexes for dedup race protection**
+> **Note:** `ASSIGNED` will remain in the enum as a no-op; later code uses `ASSIGNMENT`. Postgres does not support `ALTER TYPE … DROP VALUE` so we accept the unused value rather than recreate the enum.
 
-Edit the generated migration SQL file. Append at the bottom of the SQL:
+- [ ] **Step 3: Add partial unique index for dedup race protection (email only)**
+
+The `customers` table uses `mobile` (NOT NULL) for the phone identifier, and an existing full unique on `(tenant_id, mobile)` already covers the dedup race for phone. Only `email` (nullable) needs a partial unique. Edit the generated migration SQL file and append at the bottom:
 
 ```sql
-CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_unique
-  ON customers (tenant_id, phone) WHERE phone IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_email_unique
   ON customers (tenant_id, email) WHERE email IS NOT NULL;
 ```
@@ -477,10 +477,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_email_unique
 
 ```bash
 npx prisma migrate dev --name user_lead_extensions
-psql $DATABASE_URL -c "\d+ customers" | grep -E "customers_tenant_(phone|email)_unique"
+psql $DATABASE_URL -c "\d+ customers" | grep -E "customers_tenant_(mobile|email)_unique"
 ```
 
-Expected: both partial unique indexes listed.
+Expected: the existing `customers_tenant_id_mobile_key` unique and the new `customers_tenant_email_unique` partial unique listed.
 
 - [ ] **Step 5: Commit**
 
@@ -1392,16 +1392,17 @@ import type { IntakePayload } from '../types';
 import { prisma } from '@/lib/prisma';
 
 export async function dedupCheck(payload: IntakePayload): Promise<IntakePayload> {
-  const phone = payload.canonicalFields?.phone ?? payload.sender.phone;
+  // Canonical payload key stays `phone` (source-agnostic). On the Customer row, the column is `mobile`.
+  const mobile = payload.canonicalFields?.phone ?? payload.sender.phone;
   const email = payload.canonicalFields?.email ?? payload.sender.email;
-  if (!phone && !email) return payload;
+  if (!mobile && !email) return payload;
 
   const existing = await prisma.lead.findFirst({
     where: {
       tenantId: payload.tenantId,
       customer: {
         OR: [
-          phone ? { phone } : undefined,
+          mobile ? { mobile } : undefined,
           email ? { email } : undefined,
         ].filter(Boolean) as any,
       },
@@ -1458,7 +1459,7 @@ describe('dedupCheck — race', () => {
       canonicalFields: { phone: '+919000000001', name: 'X' },
     });
     await Promise.all([dedupCheck(payload(1)), dedupCheck(payload(2))]);
-    const customers = await prisma.customer.findMany({ where: { tenantId: 't-race', phone: '+919000000001' } });
+    const customers = await prisma.customer.findMany({ where: { tenantId: 't-race', mobile: '+919000000001' } });
     expect(customers.length).toBe(1);
   });
 });
@@ -1947,7 +1948,7 @@ export async function assignLead(payload: IntakePayload): Promise<IntakePayload>
   }
   await prisma.lead.update({ where: { id: payload.leadId }, data: { assigneeId: assignee } });
   await prisma.leadActivity.create({ data: {
-    leadId: payload.leadId, type: 'ASSIGNED' as any,
+    leadId: payload.leadId, type: 'ASSIGNMENT',
     meta: { strategy: strategy?.type ?? 'NONE', reason, assigneeId: assignee },
   }});
   return payload;
@@ -1972,7 +1973,7 @@ git commit -m "feat(6a/assign): orchestrator dispatches by tenant strategy + fal
 **Files:**
 - Create: `src/modules/intake/dispatch/index.ts` + test
 
-- [ ] **Step 1: Tests** — creates Customer if none, creates Lead (status=NEW or INTAKE_PENDING_REVIEW if field-map unconfirmed), creates Conversation + initial Message from raw payload, emits WS event + Notification to assignee
+- [ ] **Step 1: Tests** — creates Customer if none, creates Lead (with `needsFieldMapReview=true` if field-map unconfirmed), creates Conversation + initial Message from raw payload, emits WS event + Notification to assignee
 
 - [ ] **Step 2: Implement**
 
@@ -1985,16 +1986,18 @@ export async function dispatch(payload: IntakePayload): Promise<IntakePayload> {
   if (payload.dedupResult?.existingLeadId) return payload; // dedup already handled it
 
   const cf = payload.canonicalFields ?? {};
-  // upsert Customer — use findFirst-then-create-with-P2002-catch because the partial
-  // unique indexes from Task 6 (WHERE phone IS NOT NULL) are NOT a Prisma @@unique
-  // and so cannot be used as an upsert `where` key. The unique partial index still
-  // protects against true race conditions at the DB layer.
-  const phone = cf.phone ? String(cf.phone) : null;
+  // Canonical payload key stays `phone`; the Customer column is `mobile` (NOT NULL,
+  // already covered by full unique on (tenant_id, mobile)). For email (nullable),
+  // the partial unique index from Task 6 protects the race.
+  // We use findFirst-then-create-with-P2002-catch because a partial unique index
+  // is NOT a Prisma @@unique and so cannot be used as an upsert `where` key. The
+  // unique constraints still protect against true race conditions at the DB layer.
+  const mobile = cf.phone ? String(cf.phone) : null;
   const email = cf.email ? String(cf.email) : null;
-  let customer = phone || email
+  let customer = mobile || email
     ? await prisma.customer.findFirst({
         where: { tenantId: payload.tenantId, OR: [
-          phone ? { phone } : undefined,
+          mobile ? { mobile } : undefined,
           email ? { email } : undefined,
         ].filter(Boolean) as any },
       })
@@ -2004,13 +2007,14 @@ export async function dispatch(payload: IntakePayload): Promise<IntakePayload> {
       customer = await prisma.customer.create({ data: {
         tenantId: payload.tenantId,
         name: String(cf.name ?? 'Unknown'),
-        phone, email,
+        mobile: mobile ?? '', // Customer.mobile is NOT NULL; use empty string when only email present
+        email,
       }});
     } catch (e: any) {
       if (e?.code === 'P2002') {
         customer = await prisma.customer.findFirstOrThrow({
           where: { tenantId: payload.tenantId, OR: [
-            phone ? { phone } : undefined,
+            mobile ? { mobile } : undefined,
             email ? { email } : undefined,
           ].filter(Boolean) as any },
         });
@@ -2025,7 +2029,7 @@ export async function dispatch(payload: IntakePayload): Promise<IntakePayload> {
     tenantId: payload.tenantId,
     customerId: customer.id,
     source: payload.source,
-    status: needsReview ? 'INTAKE_PENDING_REVIEW' : 'NEW',
+    needsFieldMapReview: needsReview,
     priority: payload.tourMatch?.soldOut ? 'HIGH' : 'MEDIUM',
     language: cf.language ? String(cf.language) : null,
     tourId: payload.tourMatch?.tourId ?? null,
@@ -2342,7 +2346,7 @@ git commit -m "feat(6a/api): Google Forms intake + signed Apps Script template"
 - Create: `tests/load/intake-burst-dedup.test.ts`
 
 - [ ] **Step 1:** Generate 50 unique senders × 2 submissions each = 100 concurrent intakes via direct POST to `/api/webhooks/intake/{tenantToken}` (use k6 or simple `Promise.all` Node script)
-- [ ] **Step 2:** Assert exactly 50 new Leads created, 50 `LeadActivity { type: REPEAT_INQUIRY }`, exactly 50 unique Customers (no duplicate phones)
+- [ ] **Step 2:** Assert exactly 50 new Leads created, 50 `LeadActivity { type: REPEAT_INQUIRY }`, exactly 50 unique Customers (no duplicate `mobile` values)
 - [ ] **Commit:** `test(6a/load): dedup correctness under 100 concurrent intakes`
 
 ### Task 55: Load test — distribution evenness
