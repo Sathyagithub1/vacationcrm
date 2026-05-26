@@ -17,5 +17,10 @@ export default defineConfig({
   test: {
     environment: "node",
     testTimeout: 15000,
+    // Spam-layer tests share a single Postgres + Redis instance and use
+    // tenant-scoped data isolation. Running test files in parallel would let
+    // one file's `redis.flushdb()` clobber another's keys mid-test, so we
+    // serialise file execution. Tests within a file still run in order.
+    fileParallelism: false,
   },
 });
