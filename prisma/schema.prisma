@@ -560,6 +560,7 @@ model Lead {
   language           String?
   tourId             String?      @map("tour_id")
   intakeFormId       String?      @map("intake_form_id")
+  needsFieldMapReview Boolean     @default(false) @map("needs_field_map_review")
   createdAt          DateTime     @default(now()) @map("created_at")
   updatedAt          DateTime     @updatedAt @map("updated_at")
 
