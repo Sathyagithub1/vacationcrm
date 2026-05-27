@@ -19,6 +19,17 @@ export interface IntakePayload {
   spamCheck?: { passed: boolean; matchedRuleId?: string };
   webhookLogId: string;
   leadId?: string;
+  /** Elevated routing priority; set to HIGH when a sold-out tour is matched. */
+  priority?: "LOW" | "NORMAL" | "HIGH";
+  /**
+   * Outbound message staged by the tour orchestrator when a sold-out tour is
+   * matched. Written to Conversation/Message by the dispatch stage (T31) after
+   * the Lead is created — NOT written here because leadId doesn't exist yet.
+   */
+  outboundMessage?: {
+    content: string;
+    intent: "waitlist" | "alternatives" | "agent" | "unknown";
+  };
 }
 
 export type IntakeStage = (p: IntakePayload) => Promise<IntakePayload>;
