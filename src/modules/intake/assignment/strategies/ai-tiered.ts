@@ -67,8 +67,10 @@ export async function aiTiered(payload: IntakePayload): Promise<string | null> {
     // No lead context — route to lowest (most-permissive) tier.
     pickedTier = tierCount;
   } else {
-    const leadScore = await prisma.leadScore.findUnique({
-      where: { leadId: payload.leadId },
+    // Include tenantId in the lookup to prevent cross-tenant score reads:
+    // LeadScore has a tenantId column so we can scope the query fully.
+    const leadScore = await prisma.leadScore.findFirst({
+      where: { leadId: payload.leadId, tenantId: payload.tenantId },
     });
     pickedTier = leadScore ? computeTier(leadScore.score, cutoffs) : tierCount;
   }

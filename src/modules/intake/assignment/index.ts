@@ -64,8 +64,12 @@ export async function assignLead(payload: IntakePayload): Promise<IntakePayload>
   }
 
   // Persist assignment and audit trail.
+  // tenantId is included in the where clause to prevent cross-tenant lead
+  // reassignment: if a crafted payload carries a leadId belonging to a
+  // different tenant, Prisma throws P2025 (RecordNotFound) rather than
+  // silently overwriting the foreign record.
   await prisma.lead.update({
-    where: { id: payload.leadId },
+    where: { id: payload.leadId, tenantId: payload.tenantId },
     data: { assignedTo: assignee },
   });
 

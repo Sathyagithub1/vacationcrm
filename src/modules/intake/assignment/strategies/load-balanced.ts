@@ -30,6 +30,11 @@ import type { IntakePayload } from "../../types";
 /** Stage slugs that indicate a closed/terminal lead state. */
 const CLOSED_STAGE_SLUGS = ["won", "lost", "cancelled", "closed"];
 
+// MAINTENANCE NOTE: this raw SQL references mapped database column names
+// directly (u.is_active, u.on_leave_until, u.department_id, u.tenant_id,
+// l.assigned_to, l.stage_id, l.updated_at, ps.slug, ps.tenant_id). If any
+// of those columns is renamed in a future migration, this query must be
+// updated by hand — Prisma cannot type-check raw SQL.
 export async function loadBalanced(payload: IntakePayload): Promise<string | null> {
   const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT u.id

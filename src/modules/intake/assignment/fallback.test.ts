@@ -83,14 +83,43 @@ describe("fallbackAssign", () => {
   });
 
   it("no eligible agents, COMPANY_ADMIN exists → returns admin id with reason fallback:company-admin and fans notifications to all admins", async () => {
-    // No AGENTs in T2; two COMPANY_ADMINs
-    const admin1 = await createUser({ tenantId: T2, role: "COMPANY_ADMIN" });
-    const admin2 = await createUser({ tenantId: T2, role: "COMPANY_ADMIN" });
+    // No AGENTs in T2; two COMPANY_ADMINs — admin1 is explicitly older so the
+    // orderBy: createdAt ASC query must deterministically pick it first.
+    const admin1 = await prisma.user.create({
+      data: {
+        id: `user-fb-${++userSeq}`,
+        tenantId: T2,
+        email: `user-fb-${userSeq}@test.com`,
+        passwordHash: "x",
+        name: `User FB ${userSeq}`,
+        role: "COMPANY_ADMIN",
+        isActive: true,
+        departmentId: null,
+        languages: [],
+        tags: [],
+        createdAt: new Date("2026-01-01"),
+      },
+    }).then((u) => u.id);
+    const admin2 = await prisma.user.create({
+      data: {
+        id: `user-fb-${++userSeq}`,
+        tenantId: T2,
+        email: `user-fb-${userSeq}@test.com`,
+        passwordHash: "x",
+        name: `User FB ${userSeq}`,
+        role: "COMPANY_ADMIN",
+        isActive: true,
+        departmentId: null,
+        languages: [],
+        tags: [],
+        createdAt: new Date("2026-01-02"),
+      },
+    }).then((u) => u.id);
 
     const result = await fallbackAssign(T2, DEPT);
 
-    // Returns the first (earliest-created) admin
-    expect(result.agentId === admin1 || result.agentId === admin2).toBe(true);
+    // Must return the first (earliest createdAt) admin — not just either one.
+    expect(result.agentId).toBe(admin1);
     expect(result.reason).toBe("fallback:company-admin");
 
     // Both admins should have received a notification

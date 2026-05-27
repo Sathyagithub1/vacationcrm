@@ -10,6 +10,8 @@ const T1 = "t-asgn-1"; // no leadId → throws
 const T2 = "t-asgn-2"; // ROUND_ROBIN strategy → picks agent, updates lead, writes activity
 const T3 = "t-asgn-3"; // no strategy → falls back, activity has strategy=NONE
 const T4 = "t-asgn-4"; // NAMED_POOLS with no matching pool → falls back
+const T5A = "t-asgn-5a"; // cross-tenant test: tenant A (owns the lead)
+const T5B = "t-asgn-5b"; // cross-tenant test: tenant B (crafts payload with A's leadId)
 const DEPT = "dept-asgn-1";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -124,7 +126,7 @@ async function upsertStrategy(
 }
 
 async function clearAll() {
-  for (const t of [T1, T2, T3, T4]) {
+  for (const t of [T1, T2, T3, T4, T5A, T5B]) {
     await prisma.assignmentCursor.deleteMany({ where: { tenantId: t } });
     await prisma.notification.deleteMany({ where: { tenantId: t } });
     await prisma.leadActivity.deleteMany({ where: { tenantId: t } });
@@ -157,7 +159,7 @@ function makePayload(
 
 describe("assignLead orchestrator", () => {
   beforeEach(async () => {
-    for (const t of [T1, T2, T3, T4]) await ensureTenant(t);
+    for (const t of [T1, T2, T3, T4, T5A, T5B]) await ensureTenant(t);
     await clearAll();
   });
 
@@ -236,5 +238,29 @@ describe("assignLead orchestrator", () => {
     const content = activity?.content as Record<string, unknown>;
     expect(content.strategy).toBe("NAMED_POOLS");
     expect(content.reason).toBe("fallback:company-admin");
+  });
+
+  it("cross-tenant: payload from tenant B carrying tenant A's leadId → throws (RecordNotFound), lead unchanged", async () => {
+    // Seed a lead in tenant A with a known unassigned state
+    await ensureDept(DEPT, T5A);
+    await upsertStrategy(T5A, "ROUND_ROBIN");
+    const agentA = await createAgent({ tenantId: T5A, departmentId: DEPT });
+    const leadIdA = await createLead(T5A, DEPT);
+
+    // Seed tenant B with its own agent so fallback doesn't fail for a missing-agent reason
+    await ensureDept(DEPT, T5B);
+    await upsertStrategy(T5B, "ROUND_ROBIN");
+    await createAgent({ tenantId: T5B, departmentId: DEPT });
+
+    // Craft a payload: tenantId=T5B but leadId belongs to T5A (cross-tenant attack)
+    const craftedPayload = makePayload(T5B, leadIdA, { departmentId: DEPT });
+
+    // The update must throw because the where clause (id=leadIdA AND tenantId=T5B)
+    // matches no record — Prisma emits P2025 RecordNotFound.
+    await expect(assignLead(craftedPayload)).rejects.toThrow();
+
+    // Tenant A's lead must remain unassigned — no silent cross-tenant write.
+    const lead = await prisma.lead.findUnique({ where: { id: leadIdA } });
+    expect(lead?.assignedTo).toBeNull();
   });
 });
