@@ -339,6 +339,7 @@ model Tenant {
   address              String?            @map("address")
   subscriptionStatus   SubscriptionStatus @default(ACTIVE) @map("subscription_status")
   intakeToken          String             @unique @default(cuid()) @map("intake_token")
+  googleFormsKey       String?            @unique @map("google_forms_key")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
 
@@ -405,16 +406,16 @@ model User {
   onLeaveUntil            DateTime? @map("on_leave_until")
   createdAt               DateTime  @default(now()) @map("created_at")
 
-  tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  department          Department?         @relation(fields: [departmentId], references: [id])
-  assignedLeads       Lead[]              @relation("LeadAssignee")
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department          Department?          @relation(fields: [departmentId], references: [id])
+  assignedLeads       Lead[]               @relation("LeadAssignee")
   activities          LeadActivity[]
   followUps           FollowUp[]
   callbacks           Callback[]
   conversations       Conversation[]
   notifications       Notification[]
-  escalationsFrom     Escalation[]        @relation("EscalationFrom")
-  escalationsTo       Escalation[]        @relation("EscalationTo")
+  escalationsFrom     Escalation[]         @relation("EscalationFrom")
+  escalationsTo       Escalation[]         @relation("EscalationTo")
   broadcasts          Broadcast[]
   cannedResponses     CannedResponse[]
   fileUploads         FileUpload[]
@@ -479,7 +480,7 @@ model Department {
   isActive            Boolean  @default(true) @map("is_active")
   createdAt           DateTime @default(now()) @map("created_at")
 
-  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   users           User[]
   pipelineStages  PipelineStage[]
   leads           Lead[]
@@ -547,25 +548,25 @@ model Customer {
 }
 
 model Lead {
-  id                 String       @id @default(uuid()) @map("id")
-  tenantId           String       @map("tenant_id")
-  departmentId       String?      @map("department_id")
-  customerId         String       @map("customer_id")
-  destination        String?      @map("destination")
-  travelDate         DateTime?    @map("travel_date")
-  numPassengers      Int?         @map("num_passengers")
-  specialRequirement String?      @map("special_requirement")
-  source             LeadSource   @default(MANUAL) @map("source")
-  stageId            String       @map("stage_id")
-  assignedTo         String?      @map("assigned_to")
-  priority           LeadPriority @default(MEDIUM) @map("priority")
-  isFutureInterest   Boolean      @default(false) @map("is_future_interest")
-  language           String?
-  tourId             String?      @map("tour_id")
-  intakeFormId       String?      @map("intake_form_id")
-  needsFieldMapReview Boolean     @default(false) @map("needs_field_map_review")
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
+  id                  String       @id @default(uuid()) @map("id")
+  tenantId            String       @map("tenant_id")
+  departmentId        String?      @map("department_id")
+  customerId          String       @map("customer_id")
+  destination         String?      @map("destination")
+  travelDate          DateTime?    @map("travel_date")
+  numPassengers       Int?         @map("num_passengers")
+  specialRequirement  String?      @map("special_requirement")
+  source              LeadSource   @default(MANUAL) @map("source")
+  stageId             String       @map("stage_id")
+  assignedTo          String?      @map("assigned_to")
+  priority            LeadPriority @default(MEDIUM) @map("priority")
+  isFutureInterest    Boolean      @default(false) @map("is_future_interest")
+  language            String?
+  tourId              String?      @map("tour_id")
+  intakeFormId        String?      @map("intake_form_id")
+  needsFieldMapReview Boolean      @default(false) @map("needs_field_map_review")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
 
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   department    Department?    @relation(fields: [departmentId], references: [id])
@@ -1065,19 +1066,19 @@ model WidgetConfig {
 }
 
 model WidgetVisitor {
-  id            String    @id @default(uuid()) @map("id")
-  tenantId      String    @map("tenant_id")
-  visitorId     String    @map("visitor_id")
-  customerId    String?   @map("customer_id")
-  firstPageUrl  String?   @map("first_page_url")
-  referrerUrl   String?   @map("referrer_url")
-  userAgent     String?   @map("user_agent")
-  ipCountry     String?   @map("ip_country")
-  ipCity        String?   @map("ip_city")
-  totalVisits   Int       @default(1) @map("total_visits")
-  totalMessages Int       @default(0) @map("total_messages")
-  firstSeenAt   DateTime  @default(now()) @map("first_seen_at")
-  lastSeenAt    DateTime  @default(now()) @map("last_seen_at")
+  id            String   @id @default(uuid()) @map("id")
+  tenantId      String   @map("tenant_id")
+  visitorId     String   @map("visitor_id")
+  customerId    String?  @map("customer_id")
+  firstPageUrl  String?  @map("first_page_url")
+  referrerUrl   String?  @map("referrer_url")
+  userAgent     String?  @map("user_agent")
+  ipCountry     String?  @map("ip_country")
+  ipCity        String?  @map("ip_city")
+  totalVisits   Int      @default(1) @map("total_visits")
+  totalMessages Int      @default(0) @map("total_messages")
+  firstSeenAt   DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt    DateTime @default(now()) @map("last_seen_at")
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer Customer? @relation(fields: [customerId], references: [id])
