@@ -5,19 +5,15 @@ import type { IntakePayload } from "../types";
 import { dedupCheck } from "./index";
 
 /**
- * Race-condition test for dedupCheck.
+ * Back-to-back dedupCheck test.
  *
- * dedupCheck is a read-only lookup — it only calls findFirst + creates a
- * LeadActivity on match. It does NOT create Customers. Customer creation
- * happens in dispatch (T31). This test proves that running two concurrent
- * dedupCheck calls against the same pre-seeded Customer:
- *   (a) leaves exactly 1 Customer row (dedup doesn't accidentally duplicate),
- *   (b) appends exactly 2 REPEAT_INQUIRY activities (both calls matched and
- *       recorded independently).
- *
- * The migration-006 partial unique index on (tenantId, mobile) guards against
- * duplicate Customer rows that would arise if dispatch were called twice
- * concurrently — that will be exercised once T31 (dispatch) lands.
+ * This test asserts that two `dedupCheck` calls executed back-to-back against
+ * a pre-seeded customer both correctly match the existing Lead and each append
+ * a REPEAT_INQUIRY activity — and that no Customer rows are created (since
+ * dedupCheck is read+append-only). It does NOT prove atomicity of the
+ * findFirst/create sequence at the DB level; the real concurrency guard for
+ * Customer creation lives in migration 006's partial unique indexes and is
+ * exercised at dispatch-time (Task 31).
  */
 
 const TENANT_ID = "t-race";

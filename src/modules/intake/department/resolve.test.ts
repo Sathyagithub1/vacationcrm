@@ -8,16 +8,13 @@ vi.mock("@/modules/ai/provider", () => ({
   getAIProvider: vi.fn().mockResolvedValue({
     classify: vi.fn(),
     complete: vi.fn(),
-    completeJson: vi.fn().mockImplementation(async (_prompt: string) => {
-      // Default: high-confidence response — individual tests override this
-      // via mockResolvedValueOnce.
-      return { departmentId: "__unset__", confidence: 0.9 };
-    }),
+    completeJson: vi.fn().mockResolvedValue({ departmentId: "__unset__", confidence: 0 }),
   }),
 }));
 
 import { resolveDepartment } from "./index";
 import { getAIProvider } from "@/modules/ai/provider";
+import type { AIProviderWithClassify } from "@/modules/ai/provider";
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
@@ -94,11 +91,25 @@ function makePayload(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("resolveDepartment", () => {
+  // I1: Reset the AI mock to a safe no-op before every test so that
+  // queue-drain bugs and forgotten overrides don't bleed between tests.
+  // confidence: 0 (not 0.9) means any test that forgets to set an override
+  // gets undefined departmentId rather than a spurious match.
+  beforeEach(() => {
+    vi.mocked(getAIProvider).mockResolvedValue({
+      classify: vi.fn(),
+      complete: vi.fn(),
+      completeJson: vi.fn().mockResolvedValue({ departmentId: "__unset__", confidence: 0 }),
+    } as unknown as AIProviderWithClassify);
+  });
+
   afterAll(async () => {
     await clearTenant("t-dept-1");
     await clearTenant("t-dept-2");
     await clearTenant("t-dept-3");
     await clearTenant("t-dept-4");
+    await clearTenant("t-dept-5");
+    await clearTenant("t-dept-6");
     await prisma.$disconnect();
   });
 
@@ -142,6 +153,31 @@ describe("resolveDepartment", () => {
       });
       const out = await resolveDepartment(payload);
       expect(out.departmentId).toBe(DEPT_ID);
+    });
+
+    // ── C1: Cross-tenant isolation for Tier 2 ─────────────────────────────
+    it("does NOT use an IntakeForm that belongs to a different tenant (C1 guard)", async () => {
+      // FORM_ID belongs to TENANT ("t-dept-2") with DEPT_ID set.
+      // A payload from a different tenant must NOT pick up DEPT_ID.
+      const OTHER_TENANT = "t-dept-5";
+      await ensureTenant(OTHER_TENANT);
+      await clearTenant(OTHER_TENANT);
+      // Seed a department for the other tenant so Tier 3 can run (but AI
+      // mock returns confidence: 0, so departmentId must stay undefined).
+      await seedDepartment({
+        id: "dept-other-5",
+        tenantId: OTHER_TENANT,
+        name: "Other Dept",
+      });
+
+      const payload = makePayload(OTHER_TENANT, {
+        // intakeFormId belongs to TENANT (t-dept-2), not OTHER_TENANT
+        intakeFormId: FORM_ID,
+        canonicalFields: { notes: "some notes to trigger tier 3 attempt" },
+      });
+      const out = await resolveDepartment(payload);
+      // Must NOT leak DEPT_ID from tenant t-dept-2
+      expect(out.departmentId).toBeUndefined();
     });
   });
 
@@ -205,6 +241,37 @@ describe("resolveDepartment", () => {
         canonicalFields: { notes: "Not sure what I want" },
       });
       const out = await resolveDepartment(payload);
+      expect(out.departmentId).toBeUndefined();
+    });
+  });
+
+  // ── I2: AI error path — fail-soft on provider throw ────────────────────
+  describe("tier 3 — AI provider throws", () => {
+    const TENANT = "t-dept-6";
+    const DEPT_ID = "dept-ai-throw-6";
+
+    beforeEach(async () => {
+      await ensureTenant(TENANT);
+      await clearTenant(TENANT);
+      // Seed at least one active department so we reach Tier 3.
+      await seedDepartment({
+        id: DEPT_ID,
+        tenantId: TENANT,
+        name: "Safari Tours",
+      });
+    });
+
+    it("leaves departmentId undefined when AI provider throws", async () => {
+      const mockProvider = await getAIProvider(TENANT);
+      vi.mocked(mockProvider.completeJson).mockRejectedValueOnce(
+        new Error("simulated AI failure")
+      );
+
+      const payload = makePayload(TENANT, {
+        canonicalFields: { notes: "I would like to go on safari" },
+      });
+      const out = await resolveDepartment(payload);
+      // try/catch fail-soft must keep departmentId undefined
       expect(out.departmentId).toBeUndefined();
     });
   });

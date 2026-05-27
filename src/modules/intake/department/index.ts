@@ -35,13 +35,12 @@ export async function resolveDepartment(
   const canonicalRaw = payload.canonicalFields as
     | Record<string, unknown>
     | undefined;
-  const rawPayloadRaw = payload.rawPayload as Record<string, unknown>;
 
   const explicitId =
     typeof canonicalRaw?.department_id === "string"
       ? canonicalRaw.department_id
-      : typeof rawPayloadRaw?.department_id === "string"
-        ? rawPayloadRaw.department_id
+      : typeof payload.rawPayload?.department_id === "string"
+        ? payload.rawPayload.department_id
         : undefined;
 
   if (explicitId) {
@@ -56,8 +55,8 @@ export async function resolveDepartment(
 
   // ── Tier 2: IntakeForm's departmentId ────────────────────────────────────
   if (payload.intakeFormId) {
-    const form = await prisma.intakeForm.findUnique({
-      where: { id: payload.intakeFormId },
+    const form = await prisma.intakeForm.findFirst({
+      where: { id: payload.intakeFormId, tenantId: payload.tenantId },
       select: { departmentId: true },
     });
     if (form?.departmentId) {
@@ -108,7 +107,7 @@ ${notes}`;
     }
   } catch (err) {
     console.warn(
-      `[resolveDepartment] AI classification failed, continuing without department: ${
+      `[resolveDepartment][${payload.tenantId}] AI classification failed, continuing without department: ${
         (err as Error).message
       }`
     );
