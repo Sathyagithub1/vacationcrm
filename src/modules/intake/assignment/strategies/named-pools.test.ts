@@ -158,7 +158,7 @@ describe("namedPools strategy", () => {
     await createPool({
       tenantId: T3,
       agentIds: [agentHigh],
-      sourceMatch: ["FACEBOOK"],
+      sourceMatch: ["FB"],
       priority: 20,
     });
     // Pool low: dept match, priority 5
@@ -169,9 +169,9 @@ describe("namedPools strategy", () => {
       priority: 5,
     });
 
-    // payload source=FACEBOOK and departmentId=DEPT_A → both pools match, high wins
+    // payload source=FB and departmentId=DEPT_A → both pools match, high wins
     const result = await namedPools(
-      makePayload(T3, { source: "FACEBOOK", departmentId: DEPT_A })
+      makePayload(T3, { source: "FB", departmentId: DEPT_A })
     );
     expect(result).toBe(agentHigh);
   });
