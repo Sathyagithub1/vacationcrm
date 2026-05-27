@@ -36,6 +36,9 @@ export function tenantPrisma(tenantId: string) {
           "ChannelConfig", "CustomerChannel", "MessageDelivery", "WebhookLog",
           "WidgetConfig", "WidgetVisitor",
           "LeadScore", "Prediction", "ScoringWeight", "ConversionStat",
+          "Tour",
+          // TourBooking is intentionally excluded — it has no `tenantId` column;
+          // scope is inherited via the Tour relation. Callers must filter via tourId.
         ];
 
         if (!model || !modelsWithTenant.includes(model)) return query(args);
