@@ -70,6 +70,8 @@ export function buildTourSoldExtension(base: PrismaClient) {
     query: {
       tourBooking: {
         async create({ args, query }) {
+          // Reads tourId from the result (default select returns all scalars).
+          // If the caller passes a `select` that omits tourId, this silently no-ops.
           const result = await query(args);
           const tourId = (result as { tourId?: string }).tourId;
           if (tourId) await recomputeTour(base, tourId);
@@ -91,7 +93,10 @@ export function buildTourSoldExtension(base: PrismaClient) {
           return result;
         },
         async delete({ args, query }) {
-          // Capture tourId before deletion since result is the deleted row
+          // Prisma's `delete` returns the deleted row (all scalars by default), so
+          // we read tourId from the result. If the caller passes a `select` that
+          // omits tourId, this silently no-ops — callers needing recompute MUST
+          // include tourId in the result (default select or `select: { tourId: true }`).
           const result = await query(args);
           const tourId = (result as { tourId?: string }).tourId;
           if (tourId) await recomputeTour(base, tourId);
@@ -110,6 +115,15 @@ export function buildTourSoldExtension(base: PrismaClient) {
           for (const tourId of tourIds) await recomputeTour(base, tourId);
           return result;
         },
+        // KNOWN LIMITATION: recompute only fires when `where` contains `tourId`
+        // directly or as `tourId: { in: [...] }`. Where clauses that identify
+        // bookings by other fields (e.g. status, leadId, id) will NOT trigger a
+        // recompute, and Tour.sold/status will become stale.
+        //
+        // Contract: callers of tourBooking.updateMany/deleteMany MUST include
+        // tourId in the where clause if sold-count accuracy is required. Future
+        // work could close this gap by querying matching booking rows for their
+        // tourIds before/after the bulk operation.
         async updateMany({ args, query }) {
           const result = await query(args);
           // Best-effort: extract tourId from where clause
@@ -118,6 +132,15 @@ export function buildTourSoldExtension(base: PrismaClient) {
           for (const tourId of tourIds) await recomputeTour(base, tourId);
           return result;
         },
+        // KNOWN LIMITATION: recompute only fires when `where` contains `tourId`
+        // directly or as `tourId: { in: [...] }`. Where clauses that identify
+        // bookings by other fields (e.g. status, leadId, id) will NOT trigger a
+        // recompute, and Tour.sold/status will become stale.
+        //
+        // Contract: callers of tourBooking.updateMany/deleteMany MUST include
+        // tourId in the where clause if sold-count accuracy is required. Future
+        // work could close this gap by querying matching booking rows for their
+        // tourIds before/after the bulk operation.
         async deleteMany({ args, query }) {
           const result = await query(args);
           const where = args.where as Record<string, unknown> | undefined;
@@ -130,6 +153,9 @@ export function buildTourSoldExtension(base: PrismaClient) {
   });
 }
 
+// Contract: only handles `tourId` (string) or `tourId: { in: [...] }`.
+// Where clauses that don't include tourId return [] — see KNOWN LIMITATION
+// comment above updateMany/deleteMany for the full contract.
 function extractTourIdsFromWhere(
   where: Record<string, unknown> | undefined
 ): string[] {

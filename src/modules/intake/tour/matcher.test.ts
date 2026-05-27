@@ -90,7 +90,6 @@ function makePayload(overrides: Partial<IntakePayload> = {}): IntakePayload {
 // ── Setup ─────────────────────────────────────────────────────────────────────
 beforeEach(async () => {
   await ensureTenant(T);
-  await ensureDepartment(DEPT_ID, T);
   await clearAll();
   await ensureDepartment(DEPT_ID, T);
   await seedTour({

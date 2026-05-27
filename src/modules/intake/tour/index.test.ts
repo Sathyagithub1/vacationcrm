@@ -157,7 +157,7 @@ describe("processTour (orchestrator)", () => {
   it("tour match, sold out → adds sold-out tag, sets priority HIGH, stages outboundMessage", async () => {
     // Waitlist AI returns a real message
     const mockProvider = await getAIProvider(T);
-    vi.mocked(mockProvider.completeJson).mockResolvedValue({
+    vi.mocked(mockProvider.completeJson).mockResolvedValueOnce({
       content: "We're sorry, PARIS-ORCH is sold out. We can add you to the waitlist.",
       intent: "waitlist",
     });
