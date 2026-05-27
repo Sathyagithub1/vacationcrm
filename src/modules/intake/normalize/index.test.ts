@@ -23,6 +23,8 @@ const TENANTS = [
   "tenant-normalize-known",
   "tenant-normalize-unknown",
   "tenant-normalize-keydiff",
+  "tenant-normalize-leak-a",
+  "tenant-normalize-leak-b",
 ];
 
 async function ensureTenant(id: string) {
@@ -159,6 +161,43 @@ describe("normalize orchestrator", () => {
     expect(notes).toHaveLength(2);
     const userIds = notes.map((n) => n.userId).sort();
     expect(userIds).toEqual([admin1, admin2].sort());
+  });
+
+  it("does NOT apply an IntakeForm's field-map across tenants (intakeFormId from tenant A in tenant B's payload is ignored)", async () => {
+    const tenantA = "tenant-normalize-leak-a";
+    const tenantB = "tenant-normalize-leak-b";
+
+    // Seed a confirmed form in tenant A with a working field-map.
+    const formA = await prisma.intakeForm.create({
+      data: {
+        tenantId: tenantA,
+        source: "WEBSITE",
+        externalId: "form-leak-1",
+        name: "Tenant A Form",
+        fieldMap: { full_name: "name", mobile: "phone", email_addr: "email" },
+        fieldMappingConfirmed: true,
+        status: "ACTIVE",
+      },
+    });
+
+    // Tenant B sends a payload that (maliciously or accidentally) carries
+    // tenant A's intakeFormId. normalize must NOT resolve tenant A's form
+    // and MUST NOT apply tenant A's field-map.
+    const out = await normalize(
+      makePayload(tenantB, {
+        intakeFormId: formA.id,
+        rawPayload: {
+          full_name: "Bobby Tables",
+          mobile: "+910000",
+          email_addr: "bobby@x.com",
+        },
+      })
+    );
+
+    expect(out.intakeFormId).toBeUndefined();
+    expect(out.canonicalFields?.name).toBeUndefined();
+    expect(out.canonicalFields?.phone).toBeUndefined();
+    expect(out.canonicalFields?.email).toBeUndefined();
   });
 
   it("raises a KEY_DIFF notification at most once per 24h when unknown keys appear", async () => {

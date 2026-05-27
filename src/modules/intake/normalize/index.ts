@@ -27,10 +27,14 @@ import { detectLanguage } from "./language-detect";
 export async function normalize(
   payload: IntakePayload
 ): Promise<IntakePayload> {
-  // 1. Identify the IntakeForm.
+  // 1. Identify the IntakeForm. Tenant-scoped lookup: IntakeForm.id is a
+  //    global UUID, so findUnique by id alone would resolve forms across
+  //    tenants. We use findFirst with a compound (id, tenantId) filter to
+  //    prevent a cross-tenant payload from picking up another tenant's
+  //    field-map.
   let form = payload.intakeFormId
-    ? await prisma.intakeForm.findUnique({
-        where: { id: payload.intakeFormId },
+    ? await prisma.intakeForm.findFirst({
+        where: { id: payload.intakeFormId, tenantId: payload.tenantId },
       })
     : null;
 
