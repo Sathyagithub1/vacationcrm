@@ -500,14 +500,22 @@ describe("dispatch stage (T31)", () => {
   });
 
   // ── Test 10: LeadSource → ConversationChannel mapping ───────────────────
-  it("source mapping: FB → FACEBOOK, META_LEAD_AD → FACEBOOK, GOOGLE_FORMS → WEBSITE, IG → INSTAGRAM", async () => {
+  it("source mapping: every LeadSource value maps to the correct ConversationChannel", async () => {
     await seedStage(T_SRCMAP);
 
     const cases: Array<{ source: IntakePayload["source"]; expectedChannel: string; phone: string; wh: string }> = [
-      { source: "FB", expectedChannel: "FACEBOOK", phone: "+910000000011", wh: "wh-srcmap-fb" },
-      { source: "META_LEAD_AD", expectedChannel: "FACEBOOK", phone: "+910000000022", wh: "wh-srcmap-meta" },
-      { source: "GOOGLE_FORMS", expectedChannel: "WEBSITE", phone: "+910000000033", wh: "wh-srcmap-gform" },
-      { source: "IG", expectedChannel: "INSTAGRAM", phone: "+910000000044", wh: "wh-srcmap-ig" },
+      { source: "WHATSAPP", expectedChannel: "WHATSAPP", phone: "+910000000001", wh: "wh-srcmap-wa" },
+      { source: "WEBSITE", expectedChannel: "WEBSITE", phone: "+910000000002", wh: "wh-srcmap-web" },
+      { source: "FB", expectedChannel: "FACEBOOK", phone: "+910000000003", wh: "wh-srcmap-fb" },
+      { source: "IG", expectedChannel: "INSTAGRAM", phone: "+910000000004", wh: "wh-srcmap-ig" },
+      { source: "MANUAL", expectedChannel: "MANUAL", phone: "+910000000005", wh: "wh-srcmap-manual" },
+      { source: "META_LEAD_AD", expectedChannel: "FACEBOOK", phone: "+910000000006", wh: "wh-srcmap-meta" },
+      { source: "GOOGLE_FORMS", expectedChannel: "WEBSITE", phone: "+910000000007", wh: "wh-srcmap-gform" },
+      { source: "WEBSITE_SNIPPET", expectedChannel: "WEBSITE", phone: "+910000000008", wh: "wh-srcmap-snip" },
+      { source: "FORM_BUILDER", expectedChannel: "WEBSITE", phone: "+910000000009", wh: "wh-srcmap-fb-bld" },
+      { source: "EMAIL", expectedChannel: "EMAIL", phone: "+910000000010", wh: "wh-srcmap-email" },
+      { source: "MESSENGER", expectedChannel: "FACEBOOK", phone: "+910000000011", wh: "wh-srcmap-msgr" },
+      { source: "TELEGRAM", expectedChannel: "TELEGRAM", phone: "+910000000012", wh: "wh-srcmap-tg" },
     ];
 
     for (const c of cases) {

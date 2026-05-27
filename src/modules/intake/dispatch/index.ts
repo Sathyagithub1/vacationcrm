@@ -158,7 +158,12 @@ export async function dispatch(payload: IntakePayload): Promise<IntakePayload> {
         data: {
           tenantId: payload.tenantId,
           name,
-          mobile: mobile || `unknown-${Date.now()}`,
+          // Customer.mobile is NOT NULL with @@unique([tenantId, mobile]).
+          // When the intake is email-only, fall back to a random sentinel
+          // so two concurrent email-only intakes don't collide on the unique
+          // index (Date.now() at millisecond resolution would collide under
+          // load — randomUUID has 122 bits of entropy).
+          mobile: mobile || `unknown-${crypto.randomUUID()}`,
           email: email ?? null,
         },
         select: { id: true },
