@@ -7,6 +7,7 @@
  *   - Exotel  → ExoML  (<Response><Say>...</Say></Response>)
  *   - Plivo   → PHML   (<Response><Speak>...</Speak></Response>)
  *   - Twilio  → TwiML  (<Response><Say voice="alice" language="en-IN">...</Say></Response>)
+ *   - FreJun  → FrejunML (<Response><Speak>...</Speak></Response>)
  *
  * This module provides a single `renderIvrResponse` function that accepts a
  * provider name and a generic action object, then returns the correct XML string.
@@ -29,7 +30,7 @@
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type IvrProvider = "EXOTEL" | "PLIVO" | "TWILIO";
+export type IvrProvider = "EXOTEL" | "PLIVO" | "TWILIO" | "FREJUN";
 
 export interface IvrAction {
   /** Text to play via TTS */
@@ -137,12 +138,42 @@ function renderTwiml(action: IvrAction): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response>${parts.join("")}</Response>`;
 }
 
+/**
+ * Render FrejunML for FreJun.
+ *
+ * FreJun uses a similar XML dialect to Plivo (PHML):
+ *   <Speak>...</Speak>
+ *   <Dial>+91xxxxxxxxxx</Dial>
+ *   <Hangup/>
+ *
+ * // FreJun assumption: FreJun's XML dialect uses <Speak> for TTS (like Plivo),
+ * //   plain <Dial> for transfer (like Exotel/Twilio), and <Hangup/> to end calls.
+ * //   Verify against FreJun's official webhook XML docs if available.
+ */
+function renderFrejunml(action: IvrAction): string {
+  const parts: string[] = [];
+
+  if (action.playText?.trim()) {
+    parts.push(`<Speak>${escapeXml(action.playText)}</Speak>`);
+  }
+
+  if (action.transferTo?.trim()) {
+    parts.push(`<Dial>${escapeXml(action.transferTo)}</Dial>`);
+  }
+
+  if (action.hangup) {
+    parts.push("<Hangup/>");
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${parts.join("")}</Response>`;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * Render a provider-specific IVR XML response string.
  *
- * @param provider  "EXOTEL" | "PLIVO" | "TWILIO"
+ * @param provider  "EXOTEL" | "PLIVO" | "TWILIO" | "FREJUN"
  * @param action    Action object (all fields optional).
  *                  Pass an empty object `{}` to get an empty <Response/>.
  * @returns         XML string ready to return as `Content-Type: application/xml`.
@@ -157,6 +188,9 @@ function renderTwiml(action: IvrAction): string {
  *
  *   // Twilio: hangup
  *   renderIvrResponse("TWILIO", { playText: "Goodbye!", hangup: true })
+ *
+ *   // FreJun: greeting + transfer
+ *   renderIvrResponse("FREJUN", { playText: "Connecting you now.", transferTo: "+911234567890" })
  */
 export function renderIvrResponse(provider: IvrProvider, action: IvrAction): string {
   switch (provider) {
@@ -166,6 +200,8 @@ export function renderIvrResponse(provider: IvrProvider, action: IvrAction): str
       return renderPhml(action);
     case "TWILIO":
       return renderTwiml(action);
+    case "FREJUN":
+      return renderFrejunml(action);
     default: {
       // TypeScript exhaustiveness check — should never reach here
       const exhaustive: never = provider;

@@ -166,6 +166,73 @@ describe("renderIvrResponse — XML escaping", () => {
   });
 });
 
+// ── FreJun (FrejunML) ─────────────────────────────────────────────────────────
+
+describe("renderIvrResponse — FREJUN (FrejunML)", () => {
+  it("renders <Speak> for playText", () => {
+    const xml = parseXml(renderIvrResponse("FREJUN", { playText: "Welcome to Holiday Delight!" }));
+    expect(xml).toBe("<Response><Speak>Welcome to Holiday Delight!</Speak></Response>");
+  });
+
+  it("renders <Dial> for transferTo", () => {
+    const xml = parseXml(renderIvrResponse("FREJUN", { transferTo: "+911234567890" }));
+    expect(xml).toBe("<Response><Dial>+911234567890</Dial></Response>");
+  });
+
+  it("renders <Hangup/> for hangup:true", () => {
+    const xml = parseXml(renderIvrResponse("FREJUN", { hangup: true }));
+    expect(xml).toBe("<Response><Hangup/></Response>");
+  });
+
+  it("renders playText + transferTo in sequence", () => {
+    const xml = parseXml(
+      renderIvrResponse("FREJUN", {
+        playText: "Connecting you to an agent.",
+        transferTo: "+919876543210",
+      }),
+    );
+    expect(xml).toContain("<Speak>Connecting you to an agent.</Speak>");
+    expect(xml).toContain("<Dial>+919876543210</Dial>");
+  });
+
+  it("renders playText + hangup in sequence", () => {
+    const xml = parseXml(
+      renderIvrResponse("FREJUN", { playText: "Goodbye!", hangup: true }),
+    );
+    expect(xml).toContain("<Speak>Goodbye!</Speak>");
+    expect(xml).toContain("<Hangup/>");
+  });
+
+  it("renders playText + transferTo + hangup in sequence", () => {
+    const xml = parseXml(
+      renderIvrResponse("FREJUN", {
+        playText: "Transferring now.",
+        transferTo: "+911234567890",
+        hangup: true,
+      }),
+    );
+    expect(xml).toContain("<Speak>Transferring now.</Speak>");
+    expect(xml).toContain("<Dial>+911234567890</Dial>");
+    expect(xml).toContain("<Hangup/>");
+  });
+
+  it("returns empty <Response></Response> for empty action", () => {
+    const xml = parseXml(renderIvrResponse("FREJUN", {}));
+    expect(xml).toBe("<Response></Response>");
+  });
+
+  it("escapes & in playText", () => {
+    const xml = renderIvrResponse("FREJUN", { playText: "Flights & Hotels" });
+    expect(xml).toContain("Flights &amp; Hotels");
+    expect(xml).not.toContain("Flights & Hotels");
+  });
+
+  it("ignores whitespace-only playText", () => {
+    const xml = parseXml(renderIvrResponse("FREJUN", { playText: "   " }));
+    expect(xml).toBe("<Response></Response>");
+  });
+});
+
 // ── Empty / malformed actions ─────────────────────────────────────────────────
 
 describe("renderIvrResponse — empty / partial actions", () => {

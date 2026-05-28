@@ -31,6 +31,7 @@ import { getTelephonyProvider } from "./index";
 import { ExotelAdapter } from "./exotel";
 import { PlivoAdapter } from "./plivo";
 import { TwilioAdapter } from "./twilio";
+import { FreJunAdapter } from "./frejun";
 import { NotImplementedError } from "./types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -103,6 +104,32 @@ describe("getTelephonyProvider", () => {
     setTenantMock("vonage", "key", "secret");
     await expect(getTelephonyProvider("tenant-vonage")).rejects.toThrow(
       "Unknown telephony provider",
+    );
+  });
+
+  it("returns FreJunAdapter when telephonyProvider is 'frejun'", async () => {
+    const freJunJson = JSON.stringify({
+      apiToken: "frj_live_testtoken",
+      callerNumber: "+919876543210",
+      webhookSecret: "wh_secret_frejun",
+    });
+    setTenantMock("frejun", freJunJson, "-");
+    const provider = await getTelephonyProvider("tenant-frejun");
+    expect(provider).toBeInstanceOf(FreJunAdapter);
+  });
+
+  it("FreJun: throws when telephonyApiKey JSON is missing apiToken", async () => {
+    const incompleteJson = JSON.stringify({ webhookSecret: "wh_secret" });
+    setTenantMock("frejun", incompleteJson, "-");
+    await expect(getTelephonyProvider("tenant-frejun-bad")).rejects.toThrow(
+      "FreJun credentials incomplete",
+    );
+  });
+
+  it("FreJun: throws when telephonyApiKey is not valid JSON", async () => {
+    setTenantMock("frejun", "not-valid-json", "-");
+    await expect(getTelephonyProvider("tenant-frejun-nonjson")).rejects.toThrow(
+      "not valid JSON",
     );
   });
 });
