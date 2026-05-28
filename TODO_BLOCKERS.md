@@ -238,3 +238,39 @@ Create `src/app/api/auth/facebook/callback/route.ts` that:
 3. Creates/updates `ChannelConfig` with `page_id` + `access_token` in config
 4. Calls `subscribePageToLeadgen()` automatically on first connect
 This work is deferred to Phase 15 (final wiring).
+
+---
+
+## Phase 15 — Post-wiring notes (2026-05-27)
+
+### P15-N1 — featureFlags migration must be applied manually to production DB
+
+`prisma/migrations/20260527010000_tenant_feature_flags/migration.sql` adds
+`feature_flags JSONB NOT NULL DEFAULT '{}'` to `tenants`. The migration was
+hand-written (not generated via `prisma migrate dev`) to avoid any interactive
+prompt during the unattended run. Before deploying to production:
+
+```bash
+psql "$DATABASE_URL" -f prisma/migrations/20260527010000_tenant_feature_flags/migration.sql
+```
+
+Or via Prisma CLI on the prod URL:
+```bash
+npx prisma db execute --file prisma/migrations/20260527010000_tenant_feature_flags/migration.sql --url "$DATABASE_URL"
+```
+
+No tenant rows need updating — the `DEFAULT '{}'` means all existing tenants
+have `featureFlags = {}` which the opt-out logic treats as enabled.
+
+**Status:** Migration applied to local/test DB. Prod deploy: pending.
+
+---
+
+### P15-N2 — Meta leadgen flag check adds an extra DB query per lead entry
+
+The meta/leadgen webhook now issues one additional `tenant.findUnique` per
+processed lead entry to read `featureFlags`. For high-volume Meta campaigns this
+adds ~1ms per entry. If this becomes a bottleneck, denormalise the flag into
+`ChannelConfig.config` JSON at subscription-setup time and skip the extra query.
+
+**Status:** Documented — acceptable at current lead volumes.
