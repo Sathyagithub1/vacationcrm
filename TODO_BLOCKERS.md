@@ -1,3 +1,108 @@
+# TODO_BLOCKERS — Phase 6d (Voice + IVR)
+
+---
+
+## Phase 6d — Voice + IVR (2026-05-27)
+
+### 6D-B1 — Telephony adapters (Exotel/Plivo/Twilio) are stubbed
+
+**Status:** STUBBED — `verifyWebhookSignature` implemented; all call-control methods throw `NotImplementedError`
+
+**Root cause:** Live API integration requires telephony provider accounts and test credentials.
+The interfaces are stable; plug in real HTTP calls for each provider.
+
+**Files:**
+- `src/lib/telephony/exotel.ts`
+- `src/lib/telephony/plivo.ts`
+- `src/lib/telephony/twilio.ts`
+
+**Resolution:**
+- For Exotel: call `POST /v1/Accounts/{sid}/Calls/connect`
+- For Plivo: call `POST https://api.plivo.com/v1/Account/{auth_id}/Call/`
+- For Twilio: use `twilio` npm package (`npm install twilio`)
+
+---
+
+### 6D-B2 — STT (Speech-to-Text) provider is stubbed
+
+**Status:** STUBBED — returns `[stub transcription]` with confidence=0
+
+**Root cause:** No STT provider credentials available. Interface is stable.
+
+**File:** `src/lib/voice/stt.ts`
+
+**Resolution:**
+- Set `tenant.sttProvider` to `"google"` / `"deepgram"` / `"sarvam"`
+- Set `tenant.sttApiKey`
+- Implement provider dispatch in `transcribeAudio()` per the routing table in the file
+
+---
+
+### 6D-B3 — TTS (Text-to-Speech) provider is stubbed
+
+**Status:** STUBBED — returns `https://tts-stub.example.com/...` mock URL
+
+**Root cause:** No TTS provider credentials available. Interface is stable.
+
+**File:** `src/lib/voice/tts.ts`
+
+**Resolution:**
+- Set `tenant.ttsProvider` to `"google"` / `"elevenlabs"` / `"sarvam"`
+- Set `tenant.ttsApiKey`
+- Implement provider dispatch in `synthesizeSpeech()` per the routing table in the file
+
+---
+
+### 6D-B4 — IVR webhook returns JSON; needs provider-specific XML translation
+
+**Status:** DOCUMENTED — v1 returns JSON; telephony providers expect XML (ExoML/PHML/TwiML)
+
+**Impact:** The inbound webhook at `/api/webhooks/voice/:token` returns JSON. Real telephony
+providers expect XML to control the call (play TTS, gather input, transfer, hangup). Until this
+is wired, the webhook cannot drive a live call — it can only record call metadata.
+
+**Resolution (per provider):**
+- Exotel: return ExoML (`<Response><Say>…</Say><GetInput>…</GetInput></Response>`)
+- Plivo: return PHML (similar structure)
+- Twilio: return TwiML (`<Response><Say>…</Say><Gather>…</Gather></Response>`)
+
+Suggested approach: add a `formatResponse(provider, json)` function that maps the JSON shape
+to the correct XML. Estimated effort: ~2 hours per provider.
+
+---
+
+### 6D-B5 — Migration must be applied before phase-6d real-DB tests pass
+
+**Status:** PENDING — requires live DB access with `DATABASE_URL` in env
+
+**Migration file:** `prisma/migrations/20260527300000_phase_6d_voice_ivr/migration.sql`
+
+**Resolution steps:**
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/holiday_delight_crm"
+npx prisma migrate deploy
+npx prisma generate
+npx vitest run
+```
+
+---
+
+### 6D-TEST-STATUS — Test counts at phase-6d commit
+
+| Sub-task | New tests | Status |
+|---|---|---|
+| 6d.2 Telephony adapters | 16 | PASS (mocked) |
+| 6d.3 STT/TTS stubs | 9 | PASS (mocked) |
+| 6d.4 Voice agent engine | 6 | PASS (mocked) |
+| 6d.5 IVR webhook routes | 10 | PASS (mocked) |
+| 6d.6 Conversation sync | 5 | PASS (mocked) |
+| 6d.7 Voice call list API | 6 | PASS (mocked) |
+| Pre-existing suite | 264 | FAIL — awaiting migrations 6b+6c+6d |
+
+After `npx prisma migrate deploy` + `npx prisma generate` all tests expected to pass.
+
+---
+
 # TODO_BLOCKERS — Phase 6c (Razorpay Payments)
 
 ---

@@ -42,6 +42,8 @@ export function tenantPrisma(tenantId: string) {
           "Tag", "SpamRule", "SpamLog",
           // Phase 6c: payments
           "Payment",
+          // Phase 6d: voice + IVR
+          "VoiceCall",
           // TourBooking is intentionally excluded — it has no `tenantId` column;
           // scope is inherited via the Tour relation. Callers must filter via tourId.
         ];

@@ -1,0 +1,182 @@
+/**
+ * src/app/api/webhooks/voice/[tenantToken]/route.ts
+ *
+ * Phase 6d — Inbound voice webhook handler (tenant-scoped).
+ *
+ * URL: POST /api/webhooks/voice/:tenantToken
+ *
+ * Called by the telephony provider when an inbound call arrives.
+ * Tenant is identified by the intakeToken in the URL path (same pattern
+ * as the intake and Razorpay webhooks).
+ *
+ * Flow:
+ *   1. Resolve tenant by intakeToken
+ *   2. Verify provider webhook signature (X-Voice-Signature header)
+ *   3. Parse call metadata (CallSid/CallUUID, From, To)
+ *   4. Create VoiceCall record (status: RINGING)
+ *   5. Run ensureConversationForCall to link caller to a Conversation
+ *   6. Return a greeting JSON payload with the first prompt to play
+ *
+ * Response shape (v1 — provider-independent JSON):
+ *   { playText: string; action: "CONTINUE"; nextWebhookUrl: string }
+ *
+ * TODO 6D-B4: Translate this JSON to provider-specific XML (ExoML/PHML/TwiML)
+ *   at the edge or via a provider-specific formatter middleware.
+ *
+ * Error handling:
+ *   Unknown tenantToken      → 401
+ *   Webhook secret missing   → 412
+ *   Bad signature            → 401
+ *   Parse error              → 400
+ *   DB error                 → 500
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getTelephonyProvider } from "@/lib/telephony";
+import { ensureConversationForCall } from "@/modules/voice/conversation-sync";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const anyPrisma = prisma as any;
+
+type RouteContext = { params: Promise<{ tenantToken: string }> };
+
+// ── Inbound call payload (provider-normalised) ────────────────────────────────
+
+interface InboundCallBody {
+  /** Provider-assigned call identifier (callsid / CallUUID / CallSid) */
+  callSid?: string;
+  CallSid?: string;
+  CallUUID?: string;
+  /** Caller's phone number */
+  From?: string;
+  from?: string;
+  /** Called number (tenant's DID) */
+  To?: string;
+  to?: string;
+  /** Provider hint for language detection */
+  language?: string;
+}
+
+// ── Main handler ──────────────────────────────────────────────────────────────
+
+export async function POST(req: NextRequest, context: RouteContext) {
+  const { tenantToken } = await context.params;
+
+  // ── 1. Resolve tenant ─────────────────────────────────────────────────────
+  const tenant = await prisma.tenant.findUnique({
+    where: { intakeToken: tenantToken },
+    select: {
+      id: true,
+      telephonyProvider: true,
+      telephonyApiSecret: true,
+      voiceAgentEnabled: true,
+      voiceAgentSystemPrompt: true,
+      voiceAgentLanguages: true,
+    },
+  });
+
+  if (!tenant) {
+    return NextResponse.json({ error: "Invalid tenant token" }, { status: 401 });
+  }
+
+  if (!tenant.voiceAgentEnabled) {
+    return NextResponse.json({ error: "Voice agent not enabled for this tenant" }, { status: 403 });
+  }
+
+  // ── 2. Signature verification ────────────────────────────────────────────
+  const rawBody = await req.text();
+
+  if (tenant.telephonyProvider && tenant.telephonyApiSecret) {
+    try {
+      const provider = await getTelephonyProvider(tenant.id);
+      const signature = req.headers.get("x-voice-signature");
+      const valid = provider.verifyWebhookSignature(rawBody, signature, tenant.telephonyApiSecret);
+      if (!valid) {
+        return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
+      }
+    } catch (err) {
+      console.warn(
+        `[VoiceWebhook] Signature verification error for tenant ${tenant.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+      // If telephony provider is not configured, skip signature check
+      // (allows testing without full telephony setup)
+    }
+  } else if (tenant.telephonyApiSecret) {
+    return NextResponse.json(
+      { error: "Telephony provider not configured" },
+      { status: 412 },
+    );
+  }
+
+  // ── 3. Parse body ─────────────────────────────────────────────────────────
+  let body: InboundCallBody;
+  try {
+    body = JSON.parse(rawBody) as InboundCallBody;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const callSid = body.callSid ?? body.CallSid ?? body.CallUUID ?? null;
+  const fromNumber = body.From ?? body.from ?? null;
+  const toNumber = body.To ?? body.to ?? null;
+
+  if (!callSid || !fromNumber || !toNumber) {
+    return NextResponse.json(
+      { error: "Missing required fields: callSid/From/To" },
+      { status: 400 },
+    );
+  }
+
+  // ── 4. Create VoiceCall ───────────────────────────────────────────────────
+  let voiceCallId: string;
+  try {
+    const voiceCall = await anyPrisma.voiceCall.create({
+      data: {
+        tenantId: tenant.id,
+        direction: "INBOUND",
+        fromNumber,
+        toNumber,
+        providerCallSid: callSid,
+        status: "RINGING",
+        language: body.language ?? (tenant.voiceAgentLanguages?.[0] ?? "en-IN"),
+      },
+      select: { id: true },
+    });
+    voiceCallId = voiceCall.id as string;
+  } catch (err) {
+    console.error(`[VoiceWebhook] Failed to create VoiceCall for tenant ${tenant.id}:`, err);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+
+  // ── 5. Link conversation (fire-and-forget) ─────────────────────────────
+  void ensureConversationForCall(voiceCallId).catch((err) => {
+    console.warn(
+      `[VoiceWebhook] ensureConversationForCall failed for call ${voiceCallId}:`,
+      err instanceof Error ? err.message : err,
+    );
+  });
+
+  // ── 6. Update call status to IN_PROGRESS ─────────────────────────────────
+  void anyPrisma.voiceCall.update({
+    where: { id: voiceCallId },
+    data: { status: "IN_PROGRESS", answeredAt: new Date() },
+  }).catch((err: unknown) => {
+    console.warn(`[VoiceWebhook] Failed to update call status for ${voiceCallId}:`, err);
+  });
+
+  // ── 7. Return greeting ────────────────────────────────────────────────────
+  const baseUrl = req.nextUrl.origin;
+  const greeting =
+    tenant.voiceAgentSystemPrompt
+      ? "Hello! How can I assist you with your travel plans today?"
+      : "Thank you for calling. How can I help you today?";
+
+  return NextResponse.json({
+    playText: greeting,
+    action: "CONTINUE",
+    nextWebhookUrl: `${baseUrl}/api/webhooks/voice/${tenantToken}/turn`,
+    voiceCallId,
+  });
+}

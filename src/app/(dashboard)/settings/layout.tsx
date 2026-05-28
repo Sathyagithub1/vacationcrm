@@ -22,6 +22,7 @@ import {
   UserCheck,
   MapPin,
   ShieldOff,
+  Phone,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
 
@@ -69,6 +70,13 @@ const settingsTabs: SettingsTab[] = [
     label: "Spam",
     href: "/settings/spam",
     icon: ShieldOff,
+    allowedRoles: ["SUPER_ADMIN", "COMPANY_ADMIN", "DEPT_MANAGER"],
+  },
+  // Phase 6d: Voice + IVR
+  {
+    label: "Voice Calls",
+    href: "/settings/voice",
+    icon: Phone,
     allowedRoles: ["SUPER_ADMIN", "COMPANY_ADMIN", "DEPT_MANAGER"],
   },
 ];
