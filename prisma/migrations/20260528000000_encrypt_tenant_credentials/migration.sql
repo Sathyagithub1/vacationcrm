@@ -1,0 +1,33 @@
+-- Migration: 20260528000000_encrypt_tenant_credentials
+--
+-- NO SQL CHANGES — column types are unchanged.
+-- This migration entry exists to document the out-of-band credential
+-- encryption step that must be performed once on production after deploy.
+--
+-- The following Tenant fields now store values in AES-256-GCM encrypted
+-- format produced by src/lib/crypto/credential-encryption.ts:
+--
+--   • razorpay_key_secret
+--   • razorpay_webhook_secret
+--   • telephony_api_secret
+--   • stt_api_key
+--   • tts_api_key
+--
+-- Column types remain TEXT (nullable) — no schema change is needed because
+-- the encrypted v1 wire format is itself a TEXT string.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- REQUIRED AFTER DEPLOY — run the one-shot migration script:
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+--   CREDENTIAL_ENCRYPTION_KEY=<your-key> npx tsx scripts/encrypt-tenant-credentials.ts
+--
+-- The script iterates all tenants and encrypts any field that is not already
+-- in v1 format.  It is idempotent — safe to run multiple times.
+-- Run it once immediately after setting CREDENTIAL_ENCRYPTION_KEY in production.
+--
+-- Until the script is run, the application reads plaintext values via
+-- decryptIfEncrypted() which passes them through unchanged.  After the script
+-- runs, all values are encrypted and decryptIfEncrypted() decrypts them.
+--
+-- See TODO_BLOCKERS.md for status tracking.

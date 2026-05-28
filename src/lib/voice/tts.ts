@@ -19,6 +19,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { decryptIfEncrypted } from "@/lib/crypto/credential-encryption";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,10 @@ export async function synthesizeSpeech(
   if (!tenant) {
     throw new Error(`[TTS] Tenant not found: ${tenantId}`);
   }
+
+  // Decrypt ttsApiKey at read time if it was encrypted at rest.
+  // NEVER log the decrypted key.
+  const _ttsApiKey = tenant.ttsApiKey ? decryptIfEncrypted(tenant.ttsApiKey) : null;
 
   // TODO 6D-B3: replace stub with real provider dispatch once ttsProvider/ttsApiKey
   // are configured.  Routing table:

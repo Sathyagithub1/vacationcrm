@@ -20,6 +20,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { decryptIfEncrypted } from "@/lib/crypto/credential-encryption";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,10 @@ export async function transcribeAudio(
   if (!tenant) {
     throw new Error(`[STT] Tenant not found: ${tenantId}`);
   }
+
+  // Decrypt sttApiKey at read time if it was encrypted at rest.
+  // NEVER log the decrypted key.
+  const _sttApiKey = tenant.sttApiKey ? decryptIfEncrypted(tenant.sttApiKey) : null;
 
   const resolvedLanguage = language ?? DEFAULT_LANGUAGE;
 

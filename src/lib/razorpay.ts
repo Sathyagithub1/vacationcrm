@@ -21,6 +21,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import * as https from "https";
 import { prisma } from "@/lib/prisma";
+import { decryptIfEncrypted } from "@/lib/crypto/credential-encryption";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -163,10 +164,19 @@ export async function getTenantCredentials(tenantId: string): Promise<TenantCred
     throw new Error(`Razorpay credentials not configured for tenant ${tenantId}`);
   }
 
+  // Decrypt secrets at read time.  `decryptIfEncrypted` is a no-op for
+  // plaintext values — safe to call during the transition period before the
+  // one-shot encrypt-tenant-credentials.ts script has run on production.
+  // NEVER log the decrypted values.
+  const keySecret = decryptIfEncrypted(tenant.razorpayKeySecret);
+  const webhookSecret = tenant.razorpayWebhookSecret
+    ? decryptIfEncrypted(tenant.razorpayWebhookSecret)
+    : null;
+
   return {
     keyId: tenant.razorpayKeyId,
-    keySecret: tenant.razorpayKeySecret,
-    webhookSecret: tenant.razorpayWebhookSecret ?? null,
+    keySecret,
+    webhookSecret,
   };
 }
 
