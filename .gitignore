@@ -47,3 +47,4 @@ next-env.d.ts
 backups/
 .superpowers/
 unpacked/
+docs/proposals/
