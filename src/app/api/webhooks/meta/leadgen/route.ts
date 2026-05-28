@@ -6,6 +6,10 @@
  * GET  /api/webhooks/meta/leadgen  — Hub verification (Meta subscription setup)
  * POST /api/webhooks/meta/leadgen  — Lead-gen event delivery
  *
+ * Per-tenant feature flag: INTAKE_PIPELINE_V2_ENABLED
+ *   tenant.featureFlags.INTAKE_PIPELINE_V2_ENABLED === false → skip pipeline (503 per entry)
+ *   absent key (default '{}')                               → enabled (opt-out, backwards-compatible)
+ *
  * Environment vars (.env.local):
  *   META_VERIFY_TOKEN — token configured in the Meta app's webhook settings
  *   META_APP_SECRET   — app secret used for X-Hub-Signature-256 HMAC verification
@@ -181,7 +185,22 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // ── 4b. Extract page access token ─────────────────────────────────────
+      // ── 4b. Per-tenant pipeline v2 feature flag ───────────────────────────
+      // Convention: featureFlags.INTAKE_PIPELINE_V2_ENABLED === false → skip.
+      // Absent key or any other value → enabled (opt-out, backwards-compatible).
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: channelConfig.tenantId },
+        select: { featureFlags: true },
+      });
+      const flags = (tenant?.featureFlags ?? {}) as Record<string, unknown>;
+      if (flags["INTAKE_PIPELINE_V2_ENABLED"] === false) {
+        console.warn(
+          `[webhook/meta/leadgen] Pipeline v2 disabled for tenant ${channelConfig.tenantId}, skipping lead ${leadgen_id}`,
+        );
+        continue;
+      }
+
+      // ── 4c. Extract page access token ─────────────────────────────────────
       // First look in config.access_token (preferred for intake handler).
       // Fall back to credentials JSON pageAccessToken.
       const cfg = channelConfig.config as FacebookConfig | null;
@@ -203,7 +222,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // ── 4c. Fetch full lead from Meta Graph API ───────────────────────────
+      // ── 4d. Fetch full lead from Meta Graph API ───────────────────────────
       let metaLead;
       try {
         metaLead = await getMetaLead(leadgen_id, accessToken);
@@ -215,7 +234,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // ── 4d. Map field_data to sender + rawPayload ─────────────────────────
+      // ── 4e. Map field_data to sender + rawPayload ─────────────────────────
       const fieldData: MetaLeadFieldData[] = metaLead.field_data ?? [];
 
       // Helpers to pull a single value from field_data by name
@@ -237,7 +256,7 @@ export async function POST(req: NextRequest) {
         ...(senderPhone !== undefined ? { phone: senderPhone } : {}),
       };
 
-      // ── 4e. Write IntakeWebhookLog ────────────────────────────────────────
+      // ── 4f. Write IntakeWebhookLog ────────────────────────────────────────
       const log = await prisma.intakeWebhookLog.create({
         data: {
           tenantId: channelConfig.tenantId,
@@ -250,7 +269,7 @@ export async function POST(req: NextRequest) {
         select: { id: true },
       });
 
-      // ── 4f. Build and run pipeline ────────────────────────────────────────
+      // ── 4g. Build and run pipeline ────────────────────────────────────────
       const intakePayload: IntakePayload = {
         tenantId: channelConfig.tenantId,
         source: "META_LEAD_AD",

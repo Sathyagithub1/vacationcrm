@@ -9,6 +9,10 @@
  * additional HMAC signature is required because knowledge of the token IS the
  * credential.
  *
+ * Per-tenant feature flag: INTAKE_PIPELINE_V2_ENABLED
+ *   tenant.featureFlags.INTAKE_PIPELINE_V2_ENABLED === false → 503
+ *   absent key (default '{}')                               → enabled (opt-out)
+ *
  * Environment vars required:
  *   (none — this endpoint uses token-in-path auth only)
  *
@@ -51,6 +55,7 @@ type RouteContext = { params: Promise<{ tenantToken: string }> };
  *   200 — pipeline ran (or dedup hit — lead already exists)
  *   400 — malformed JSON body or unknown LeadSource value
  *   401 — tenantToken not recognised
+ *   503 — pipeline v2 disabled for this tenant (per-tenant flag)
  *   500 — pipeline threw an unexpected error
  */
 export async function POST(req: NextRequest, context: RouteContext) {
@@ -59,14 +64,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
   // ── 1. Resolve tenant ─────────────────────────────────────────────────────
   const tenant = await prisma.tenant.findUnique({
     where: { intakeToken: tenantToken },
-    select: { id: true },
+    // featureFlags is per-tenant; read it here so we can gate below.
+    select: { id: true, featureFlags: true },
   });
 
   if (!tenant) {
     return NextResponse.json({ error: "Invalid tenant token" }, { status: 401 });
   }
 
-  // ── 2. Parse body ─────────────────────────────────────────────────────────
+  // ── 2. Per-tenant pipeline v2 feature flag ────────────────────────────────
+  // Convention: featureFlags.INTAKE_PIPELINE_V2_ENABLED === false  → disabled.
+  // Absent key or any other value (including true) → enabled (opt-out, backwards-compatible).
+  const flags = (tenant.featureFlags ?? {}) as Record<string, unknown>;
+  if (flags["INTAKE_PIPELINE_V2_ENABLED"] === false) {
+    return NextResponse.json({ error: "Pipeline v2 disabled" }, { status: 503 });
+  }
+
+  // ── 3. Parse body ─────────────────────────────────────────────────────────
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -74,7 +88,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // ── 3. Resolve source ─────────────────────────────────────────────────────
+  // ── 4. Resolve source ─────────────────────────────────────────────────────
   // X-Source header takes precedence over the body `source` field; both fall
   // back to the default "WEBSITE" if absent.
   const rawSource =
@@ -91,7 +105,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
   }
   const source = upperSource as LeadSource;
 
-  // ── 4. Write IntakeWebhookLog ─────────────────────────────────────────────
+  // ── 5. Write IntakeWebhookLog ─────────────────────────────────────────────
   const log = await prisma.intakeWebhookLog.create({
     data: {
       tenantId: tenant.id,
@@ -104,7 +118,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     select: { id: true },
   });
 
-  // ── 5. Build IntakePayload ────────────────────────────────────────────────
+  // ── 6. Build IntakePayload ────────────────────────────────────────────────
   const payload: IntakePayload = {
     tenantId: tenant.id,
     source,
@@ -120,7 +134,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     webhookLogId: log.id,
   };
 
-  // ── 6. Run pipeline ───────────────────────────────────────────────────────
+  // ── 7. Run pipeline ───────────────────────────────────────────────────────
   try {
     const result = await runPipeline(payload, STAGES);
     return NextResponse.json({ ok: true, leadId: result.leadId ?? null });

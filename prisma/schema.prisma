@@ -340,6 +340,7 @@ model Tenant {
   subscriptionStatus   SubscriptionStatus @default(ACTIVE) @map("subscription_status")
   intakeToken          String             @unique @default(cuid()) @map("intake_token")
   googleFormsKey       String?            @unique @map("google_forms_key")
+  featureFlags         Json               @default("{}") @map("feature_flags")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
 

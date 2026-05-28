@@ -9,6 +9,10 @@
  *   2. HMAC-SHA256 of the raw request body using tenant.googleFormsKey.
  *      Header: X-Signature: sha256=<hex>
  *
+ * Per-tenant feature flag: INTAKE_PIPELINE_V2_ENABLED
+ *   tenant.featureFlags.INTAKE_PIPELINE_V2_ENABLED === false → 503
+ *   absent key (default '{}')                               → enabled (opt-out, backwards-compatible)
+ *
  * If tenant.googleFormsKey is null the endpoint returns 412 Precondition
  * Failed — the admin must configure a signing key before the Apps Script
  * template can be used.
@@ -39,22 +43,32 @@ type RouteContext = { params: Promise<{ tenantToken: string }> };
  *   400  — malformed JSON body
  *   401  — tenantToken not recognised OR HMAC mismatch
  *   412  — googleFormsKey not configured for this tenant
+ *   503  — pipeline v2 disabled for this tenant (per-tenant flag)
  *   500  — pipeline threw an unexpected error
  */
 export async function POST(req: NextRequest, context: RouteContext) {
   const { tenantToken } = await context.params;
 
   // ── 1. Resolve tenant ─────────────────────────────────────────────────────
+  // featureFlags is read here so we can gate on it before processing the body.
   const tenant = await prisma.tenant.findUnique({
     where: { intakeToken: tenantToken },
-    select: { id: true, googleFormsKey: true },
+    select: { id: true, googleFormsKey: true, featureFlags: true },
   });
 
   if (!tenant) {
     return NextResponse.json({ error: "Invalid tenant token" }, { status: 401 });
   }
 
-  // ── 2. Check signing key is configured ───────────────────────────────────
+  // ── 2. Per-tenant pipeline v2 feature flag ────────────────────────────────
+  // Convention: featureFlags.INTAKE_PIPELINE_V2_ENABLED === false  → disabled.
+  // Absent key or any other value → enabled (opt-out, backwards-compatible).
+  const flags = (tenant.featureFlags ?? {}) as Record<string, unknown>;
+  if (flags["INTAKE_PIPELINE_V2_ENABLED"] === false) {
+    return NextResponse.json({ error: "Pipeline v2 disabled" }, { status: 503 });
+  }
+
+  // ── 3. Check signing key is configured ───────────────────────────────────
   if (!tenant.googleFormsKey) {
     return NextResponse.json(
       { error: "Google Forms key not configured for this tenant" },
@@ -62,10 +76,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
     );
   }
 
-  // ── 3. Read raw body (must come before req.json() to preserve the bytes) ─
+  // ── 4. Read raw body (must come before req.json() to preserve the bytes) ─
   const rawBody = await req.text();
 
-  // ── 4. Verify X-Signature HMAC-SHA256 ────────────────────────────────────
+  // ── 5. Verify X-Signature HMAC-SHA256 ────────────────────────────────────
   const sigHeader = req.headers.get("x-signature");
 
   if (!sigHeader) {
@@ -90,7 +104,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
   }
 
-  // ── 5. Parse body JSON ────────────────────────────────────────────────────
+  // ── 6. Parse body JSON ────────────────────────────────────────────────────
   let body: Record<string, unknown>;
   try {
     body = JSON.parse(rawBody) as Record<string, unknown>;
@@ -98,7 +112,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // ── 6. Map well-known Google Forms field names to canonical fields ────────
+  // ── 7. Map well-known Google Forms field names to canonical fields ────────
   // The Apps Script sends namedValues as a flat object. Support common aliases.
   const email =
     typeof body.email === "string" ? body.email : undefined;
@@ -121,7 +135,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           ? body.phone_number
           : undefined;
 
-  // ── 7. Write IntakeWebhookLog ─────────────────────────────────────────────
+  // ── 8. Write IntakeWebhookLog ─────────────────────────────────────────────
   const log = await prisma.intakeWebhookLog.create({
     data: {
       tenantId: tenant.id,
@@ -134,7 +148,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     select: { id: true },
   });
 
-  // ── 8. Build IntakePayload ────────────────────────────────────────────────
+  // ── 9. Build IntakePayload ────────────────────────────────────────────────
   const payload: IntakePayload = {
     tenantId: tenant.id,
     source: "GOOGLE_FORMS",
@@ -149,7 +163,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     },
   };
 
-  // ── 9. Run pipeline ───────────────────────────────────────────────────────
+  // ── 10. Run pipeline ──────────────────────────────────────────────────────
   try {
     const result = await runPipeline(payload, STAGES);
     return NextResponse.json({ ok: true, leadId: result.leadId ?? null });
