@@ -1,3 +1,47 @@
+# TODO_BLOCKERS — Phase 6f (Integrations)
+
+---
+
+## Phase 6f — Real Provider Integrations (2026-05-28)
+
+### 6F STATUS
+
+| Sub-task | Status | Commit |
+|---|---|---|
+| 6F.1 Exotel REST adapter | DONE | `82910d3` |
+| 6F.2 Google STT | DONE | `2d8f0c4` |
+| 6F.3 Google TTS + audio caching | DONE | `9c5680c` |
+| 6F.4 IVR XML rendering + webhook wiring | DONE | `7a7372c` |
+| 6F.5 Razorpay SDK swap | DONE | `43e98a7` |
+
+### 6F-N1 — Exotel credential shape
+
+`telephonyApiKey` must be stored as encrypted JSON:
+`{ "accountSid": "ACXXX", "apiKey": "exo_key_xxx", "apiToken": "exo_token_xxx" }`
+
+Encrypt with: `npx tsx scripts/encrypt-tenant-credentials.ts`
+The old `telephonyApiSecret` field is unused for Exotel (kept for interface compat).
+
+### 6F-N2 — Plivo / Twilio adapters still stubbed
+
+Plivo and Twilio `placeCall` / `hangup` still throw `NotImplementedError`.
+IVR XML rendering for all three providers works.  Implement when a tenant
+requests Plivo or Twilio as their telephony provider.
+
+### 6F-N3 — Google TTS audio file persistence
+
+TTS audio files are written to `public/tts/<uuid>.mp3`.  In a serverless/
+multi-replica deployment, use GCS/S3 pre-signed URLs instead of local disk.
+Add a TTL cleanup job to prevent unbounded disk growth.
+
+### 6F-N4 — Google STT: non-GCS URLs fetch audio bytes inline
+
+For audio hosted outside GCS, the STT adapter fetches the bytes at request
+time.  For large recordings (>5MB) this adds latency.  Consider uploading
+recordings to GCS and using `audio.uri` for all calls.
+
+---
+
 # TODO_BLOCKERS — Phase 6e (Hardening)
 
 ---
@@ -105,68 +149,60 @@ All 14 UI tests (9 unskipped + 5 previously-node token-sub tests) should pass.
 
 ### 6D-B1 — Telephony adapters (Exotel/Plivo/Twilio) are stubbed
 
-**Status:** STUBBED — `verifyWebhookSignature` implemented; all call-control methods throw `NotImplementedError`
+**Status:** PARTIALLY RESOLVED (Phase 6f) — commit `82910d3`
 
-**Root cause:** Live API integration requires telephony provider accounts and test credentials.
-The interfaces are stable; plug in real HTTP calls for each provider.
+**What was done (Exotel):**
+- `placeCall`: POST `/v1/Accounts/{sid}/Calls/connect.json` with form params + Basic auth
+- `hangup`: DELETE `/v1/Accounts/{sid}/Calls/{callSid}.json`
+- `transferToAgent`: NotImplementedError pointing to `<Dial>` ExoML (correct approach)
+- `playTts / startRecording / stopRecording`: documented no-ops (XML-level concerns)
 
-**Files:**
-- `src/lib/telephony/exotel.ts`
-- `src/lib/telephony/plivo.ts`
-- `src/lib/telephony/twilio.ts`
-
-**Resolution:**
-- For Exotel: call `POST /v1/Accounts/{sid}/Calls/connect`
-- For Plivo: call `POST https://api.plivo.com/v1/Account/{auth_id}/Call/`
-- For Twilio: use `twilio` npm package (`npm install twilio`)
+**Remaining (Plivo / Twilio):**
+- Plivo / Twilio `placeCall` / `hangup` still throw `NotImplementedError`
+- Implement when a tenant requests these providers
 
 ---
 
 ### 6D-B2 — STT (Speech-to-Text) provider is stubbed
 
-**Status:** STUBBED — returns `[stub transcription]` with confidence=0
+**Status:** RESOLVED (Phase 6f) — commit `2d8f0c4`
 
-**Root cause:** No STT provider credentials available. Interface is stable.
-
-**File:** `src/lib/voice/stt.ts`
-
-**Resolution:**
-- Set `tenant.sttProvider` to `"google"` / `"deepgram"` / `"sarvam"`
-- Set `tenant.sttApiKey`
-- Implement provider dispatch in `transcribeAudio()` per the routing table in the file
+**What was done:**
+- `transcribeAudio` routes to Google Cloud STT v1 REST API when `sttProvider=GOOGLE`
+- GCS audio (`gs://`) uses `audio.uri`; other URLs fetched and base64-encoded
+- `toGoogleLangCode()` shared helper expands 2-letter ISO codes to xx-IN BCP-47 tags
+- Fail-soft: API errors return `{ text: "", confidence: 0 }` — no IVR crash
+- Non-GOOGLE providers fall through to stub for backward compatibility
 
 ---
 
 ### 6D-B3 — TTS (Text-to-Speech) provider is stubbed
 
-**Status:** STUBBED — returns `https://tts-stub.example.com/...` mock URL
+**Status:** RESOLVED (Phase 6f) — commit `9c5680c`
 
-**Root cause:** No TTS provider credentials available. Interface is stable.
+**What was done:**
+- `synthesizeSpeech` routes to Google Cloud TTS v1 REST API when `ttsProvider=GOOGLE`
+- `audioContent` (base64 MP3) written to `public/tts/<uuid>.mp3`
+- Returns `/tts/<uuid>.mp3` relative URL for same-host telephony serving
+- Reuses `toGoogleLangCode` from shared `lang-codes.ts`
+- Fail-soft: errors return stub URL — no IVR crash
 
-**File:** `src/lib/voice/tts.ts`
-
-**Resolution:**
-- Set `tenant.ttsProvider` to `"google"` / `"elevenlabs"` / `"sarvam"`
-- Set `tenant.ttsApiKey`
-- Implement provider dispatch in `synthesizeSpeech()` per the routing table in the file
+**Remaining:** For distributed/serverless deployments, replace local file write with GCS/S3 pre-signed URL (see 6F-N3).
 
 ---
 
 ### 6D-B4 — IVR webhook returns JSON; needs provider-specific XML translation
 
-**Status:** DOCUMENTED — v1 returns JSON; telephony providers expect XML (ExoML/PHML/TwiML)
+**Status:** RESOLVED (Phase 6f) — commit `7a7372c`
 
-**Impact:** The inbound webhook at `/api/webhooks/voice/:token` returns JSON. Real telephony
-providers expect XML to control the call (play TTS, gather input, transfer, hangup). Until this
-is wired, the webhook cannot drive a live call — it can only record call metadata.
-
-**Resolution (per provider):**
-- Exotel: return ExoML (`<Response><Say>…</Say><GetInput>…</GetInput></Response>`)
-- Plivo: return PHML (similar structure)
-- Twilio: return TwiML (`<Response><Say>…</Say><Gather>…</Gather></Response>`)
-
-Suggested approach: add a `formatResponse(provider, json)` function that maps the JSON shape
-to the correct XML. Estimated effort: ~2 hours per provider.
+**What was done:**
+- `renderIvrResponse(provider, action)` in `src/lib/telephony/xml.ts`
+- Exotel: `<Say voice="female">` / `<Dial>` / `<Hangup/>`
+- Plivo: `<Speak>` / `<Dial><Number>` / `<Hangup/>`
+- Twilio: `<Say voice="alice" language="en-IN">` / `<Dial>` / `<Hangup/>`
+- Inbound and turn webhook routes return `application/xml` to telephony providers
+- `?format=json` query param returns JSON for tests / debug tools
+- XML injection prevention: all text content HTML/XML-escaped
 
 ---
 
@@ -210,24 +246,14 @@ After `npx prisma migrate deploy` + `npx prisma generate` all tests expected to 
 
 ### 6C-B1 — `npm install razorpay` fails: TLS certificate chain error
 
-**Status:** BLOCKED — using manual REST client as workaround
+**Status:** RESOLVED (Phase 6f) — commit `43e98a7`
 
-**Root cause:** `npm install razorpay` fails with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`
-on this machine. The environment cannot verify the npm registry certificate chain.
-
-**Impact:** The official `razorpay` npm SDK is not installed. Phase 6c uses a
-hand-written REST client in `src/lib/razorpay.ts` (Node `https` module, no
-external dependencies). Behaviour is functionally identical to the SDK.
-
-**Resolution:**
-```bash
-# On a machine with valid certificate chain:
-npm install razorpay
-# Then replace src/lib/razorpay.ts with:
-import Razorpay from "razorpay";
-const rzp = new Razorpay({ key_id: creds.keyId, key_secret: creds.keySecret });
-# and update createOrder/refundPayment to use the SDK client.
-```
+**What was done:**
+- `razorpay` npm SDK installed via `npm install razorpay --strict-ssl=false`
+- `src/lib/razorpay.ts` rewritten to use `Razorpay.orders.create` / `Razorpay.payments.refund`
+- `verifyWebhookSignature` now uses `Razorpay.validateWebhookSignature` static method
+- Manual `https.request` client removed; `import * as https from "https"` removed
+- Tests updated to mock the SDK instead of the https module
 
 ---
 
