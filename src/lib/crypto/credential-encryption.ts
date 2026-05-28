@@ -127,8 +127,11 @@ export function decryptCredential(encoded: string): string {
   const authTagHex = payload.slice(firstColon + 1, secondColon);
   const ciphertextHex = payload.slice(secondColon + 1);
 
-  if (!ivHex || !authTagHex || !ciphertextHex) {
-    throw new Error("decryptCredential: one or more v1 payload segments is empty");
+  // Note: empty ciphertext is legitimate when the plaintext was an empty
+  // string (AES-GCM produces 0 bytes of ciphertext for 0 bytes of input).
+  // Only IV and auth tag are mandatory.
+  if (!ivHex || !authTagHex) {
+    throw new Error("decryptCredential: IV or auth tag segment is empty");
   }
 
   const key = getMasterKey();

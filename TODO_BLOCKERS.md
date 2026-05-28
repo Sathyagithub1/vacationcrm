@@ -444,7 +444,15 @@ datasource db {
 
 ## B7 — Lead-level dedup race window under concurrent intakes
 
-**Status:** DOCUMENTED — load test revealed real production gap.
+**Status:** PARTIALLY_RESOLVED (Phase 6e, commit `200f39a`). v1 fix added a
+per-phone `pg_advisory_xact_lock` in `dedupCheck` which serialises concurrent
+dedup reads for the same phone. Residual gap: the lock releases BEFORE
+dispatch's Customer/Lead create runs, so two intakes can still both read "no
+customer" if their dispatches haven't committed yet. Full fix requires
+either (a) holding the lock through dispatch, or (b) pulling Customer+Lead
+create up into dedup under the lock. Tracked as **B7-RESIDUAL** below.
+
+**Original analysis:**
 
 **Root cause:** `dedupCheck` stage reads Customer rows BEFORE `dispatch` stage
 writes them. When two intakes for the same phone arrive concurrently:

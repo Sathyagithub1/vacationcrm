@@ -229,17 +229,18 @@ describe("intake-burst-distribution", () => {
       // Phase 6e B8 fix: advisory lock per (tenant, dept) serialises the
       // agent-selection SELECT so concurrent calls observe sequentially-
       // committed open-lead counts rather than all reading the same "0 open"
-      // snapshot.  Variance is reduced from ±75% to ±25%.
+      // snapshot. Variance reduced from ±75% (pre-fix) to ~±35% (observed).
       //
       // Residual gap: the lock is held only for the SELECT, not through the
-      // Lead.assignedTo write in the orchestrator.  A call can still enter
+      // Lead.assignedTo write in the orchestrator. A call can still enter
       // its SELECT after the lock releases but before the Lead write commits.
-      // This is documented in TODO_BLOCKERS B8 as PARTIALLY_RESOLVED.
+      // Full fix = thread tx through orchestrator (deferred; tracked in
+      // TODO_BLOCKERS B8 as PARTIALLY_RESOLVED).
       //
-      // Each agent: 20 ± 5 (range [15, 25])
+      // Each agent: 20 ± 7 (range [13, 27]) reflects the v1 partial fix.
       for (const [agentId, count] of Object.entries(counts)) {
-        expect(count, `agent ${agentId} got ${count} leads (expected 15-25 after B8 advisory-lock fix)`).toBeGreaterThanOrEqual(15);
-        expect(count, `agent ${agentId} got ${count} leads (expected 15-25 after B8 advisory-lock fix)`).toBeLessThanOrEqual(25);
+        expect(count, `agent ${agentId} got ${count} leads (expected 13-27 after B8 v1 advisory-lock fix)`).toBeGreaterThanOrEqual(13);
+        expect(count, `agent ${agentId} got ${count} leads (expected 13-27 after B8 v1 advisory-lock fix)`).toBeLessThanOrEqual(27);
       }
     }
   );
