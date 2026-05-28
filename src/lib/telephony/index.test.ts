@@ -190,14 +190,16 @@ describe("TwilioAdapter.verifyWebhookSignature", () => {
   });
 });
 
-// ── NotImplementedError tests ─────────────────────────────────────────────────
+// ── NotImplementedError / stub tests ─────────────────────────────────────────
 
-describe("NotImplementedError from stub adapters", () => {
-  it("placeCall throws NotImplementedError on ExotelAdapter", async () => {
-    const adapter = new ExotelAdapter("key", "secret");
+describe("Adapter stub / error behaviour", () => {
+  it("ExotelAdapter.placeCall throws when apiKey is not valid JSON (bad tenant config)", async () => {
+    // Exotel now makes real REST calls; it throws a config error (not NotImplementedError)
+    // when telephonyApiKey is not JSON-formatted { accountSid, apiKey, apiToken }.
+    const adapter = new ExotelAdapter("not-json-key", "secret");
     await expect(
       adapter.placeCall({ from: "+91", to: "+91", webhookUrl: "https://x.com" }),
-    ).rejects.toBeInstanceOf(NotImplementedError);
+    ).rejects.toThrow("telephonyApiKey must be a JSON string");
   });
 
   it("placeCall throws NotImplementedError on PlivoAdapter", async () => {
@@ -214,21 +216,30 @@ describe("NotImplementedError from stub adapters", () => {
     ).rejects.toBeInstanceOf(NotImplementedError);
   });
 
-  it("hangup throws NotImplementedError", async () => {
-    const adapter = new ExotelAdapter("key", "secret");
-    await expect(adapter.hangup("call-sid-1")).rejects.toBeInstanceOf(
+  it("ExotelAdapter.hangup throws when apiKey is not valid JSON", async () => {
+    // Exotel hangup now makes real REST calls; bad config → config error.
+    const adapter = new ExotelAdapter("not-json-key", "secret");
+    await expect(adapter.hangup("call-sid-1")).rejects.toThrow(
+      "telephonyApiKey must be a JSON string",
+    );
+  });
+
+  it("ExotelAdapter.transferToAgent throws NotImplementedError (XML approach required)", async () => {
+    const creds = JSON.stringify({ accountSid: "AC1", apiKey: "k", apiToken: "t" });
+    const adapter = new ExotelAdapter(creds, "secret");
+    await expect(adapter.transferToAgent("sid-1", "+91")).rejects.toBeInstanceOf(
       NotImplementedError,
     );
   });
 
-  it("startRecording throws NotImplementedError", async () => {
+  it("startRecording throws NotImplementedError on TwilioAdapter", async () => {
     const adapter = new TwilioAdapter("ACsid", "token");
     await expect(adapter.startRecording("CA_call_1")).rejects.toBeInstanceOf(
       NotImplementedError,
     );
   });
 
-  it("stopRecording throws NotImplementedError", async () => {
+  it("stopRecording throws NotImplementedError on PlivoAdapter", async () => {
     const adapter = new PlivoAdapter("id", "token");
     await expect(adapter.stopRecording("uuid-call-1")).rejects.toBeInstanceOf(
       NotImplementedError,
