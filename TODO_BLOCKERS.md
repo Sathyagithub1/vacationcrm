@@ -274,3 +274,106 @@ adds ~1ms per entry. If this becomes a bottleneck, denormalise the flag into
 `ChannelConfig.config` JSON at subscription-setup time and skip the extra query.
 
 **Status:** Documented — acceptable at current lead volumes.
+
+---
+
+## Phase 6b — Multi-channel + Memory + Escalation (2026-05-27)
+
+### 6B-B1 — Prisma migration must be applied before 6b tests pass
+
+**Status:** PENDING — requires `DATABASE_URL` and live DB access
+
+**Impact:** 29 new tests fail at runtime because `prisma.customerMemory`,
+`prisma.escalationRule`, `channelConfig.isPrimary`, `channelConfig.externalId`,
+`conversation.escalatedAt`, `conversation.escalationReason`, and `customer.tagIds`
+do not yet exist in the generated Prisma client. The migration SQL is written and
+committed. All `as any` casts will be removable once the migration runs.
+
+**Migration file:**
+`prisma/migrations/20260527100000_migration_6b_multi_channel_configs/migration.sql`
+
+**Resolution steps (run on deployment machine):**
+```bash
+# 1. Apply migration
+npx prisma migrate dev --name migration_6b_multi_channel_configs
+
+# 2. Regenerate Prisma client
+npx prisma generate
+
+# 3. Remove anyPrisma / anyDb casts in:
+#    src/modules/channels/multi-whatsapp.ts
+#    src/app/api/channel-configs/route.ts
+#    src/modules/broadcast/audience.ts
+#    src/modules/memory/customer-memory.ts
+#    src/modules/escalation/auto-escalate.ts
+#    src/app/api/customers/[id]/memory/route.ts
+#    src/app/api/customers/[id]/memory/[memoryId]/route.ts
+#    src/app/api/escalation-rules/route.ts
+#    src/app/api/escalation-rules/[id]/route.ts
+#    src/app/api/conversations/[id]/escalate/route.ts
+#    src/app/api/broadcasts/route.ts
+
+# 4. Re-run tests — all 29 phase-6b tests should pass
+npx vitest run
+```
+
+**Pre-existing tests unaffected:** 208 tests still pass before migration.
+
+---
+
+### 6B-B2 — ChannelConfig unique constraint change: check for NULL duplicates first
+
+**Status:** PENDING — data integrity check required before migration
+
+Old constraint: `@@unique([tenantId, channel])`
+New constraint: `@@unique([tenantId, channel, externalId])`
+
+If any tenant has two WHATSAPP rows both with `externalId = NULL`, the migration
+will FAIL (Postgres treats NULL = NULL as false in unique indexes, so two NULLs
+are allowed — but check your intent). Run before migration:
+
+```sql
+SELECT "tenantId", channel, COUNT(*)
+FROM channel_configs
+WHERE "externalId" IS NULL
+GROUP BY "tenantId", channel
+HAVING COUNT(*) > 1;
+```
+
+If any rows returned, deactivate duplicates or backfill `externalId` first.
+
+---
+
+### 6B-B3 — WhatsApp App-level webhook requires Meta Business Manager config
+
+**Status:** OPERATIONS TASK
+
+The updated `src/app/api/webhooks/whatsapp/route.ts` now supports both
+per-tenant (`?tenantId=xxx`) and App-level (resolves tenant by `phone_number_id`)
+webhook routing. For App-level to work, the Meta App webhook URL must point to the
+deployment domain (not per-tenant subdomain). Operations must configure Meta
+Business Manager to send ALL WhatsApp Business events to a single webhook URL.
+
+---
+
+### 6B-UI1 — UI for phase-6b features deferred to Phase 7 UI pass
+
+- [ ] Channel config page: list/add/set-primary multiple WhatsApp numbers per tenant
+- [ ] Broadcast composer: tag-based audience selector and preview count
+- [ ] Customer profile: memory timeline (facts, preferences, conversation summaries)
+- [ ] Conversation view: escalation indicator + manual escalate button
+- [ ] Settings: escalation rules CRUD (create / edit / toggle / delete)
+
+---
+
+### 6B-TEST-STATUS — Test counts at phase-6b commit
+
+| Sub-task | New tests | Status before migration |
+|---|---|---|
+| 6b.1 Multi-WhatsApp numbers | 9 | FAIL — awaiting migration |
+| 6b.2 Tags + Broadcast | 6 | FAIL — awaiting migration |
+| 6b.3 Customer Memory | 5 | FAIL — awaiting migration |
+| 6b.4 Auto-Escalation | 9 | FAIL — awaiting migration |
+| Pre-existing suite | 208 | PASS |
+
+After `prisma migrate dev` + `prisma generate` all 29 new tests are expected to pass.
