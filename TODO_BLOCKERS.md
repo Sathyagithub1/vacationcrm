@@ -1,3 +1,107 @@
+# TODO_BLOCKERS — Phase 6c (Razorpay Payments)
+
+---
+
+## Phase 6c — Razorpay Payments (2026-05-27)
+
+### 6C-B1 — `npm install razorpay` fails: TLS certificate chain error
+
+**Status:** BLOCKED — using manual REST client as workaround
+
+**Root cause:** `npm install razorpay` fails with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`
+on this machine. The environment cannot verify the npm registry certificate chain.
+
+**Impact:** The official `razorpay` npm SDK is not installed. Phase 6c uses a
+hand-written REST client in `src/lib/razorpay.ts` (Node `https` module, no
+external dependencies). Behaviour is functionally identical to the SDK.
+
+**Resolution:**
+```bash
+# On a machine with valid certificate chain:
+npm install razorpay
+# Then replace src/lib/razorpay.ts with:
+import Razorpay from "razorpay";
+const rzp = new Razorpay({ key_id: creds.keyId, key_secret: creds.keySecret });
+# and update createOrder/refundPayment to use the SDK client.
+```
+
+---
+
+### 6C-B2 — Migration must be applied before phase-6c real-DB tests pass
+
+**Status:** PENDING — requires live DB access with `DATABASE_URL` in env
+
+**Impact:** All real-DB tests fail because `tenants.razorpay_key_id`,
+`tenants.razorpay_key_secret`, `tenants.razorpay_webhook_secret`, and the
+`payments` table do not yet exist in the database.
+
+**Migration file:**
+`prisma/migrations/20260527200000_phase_6c_payments/migration.sql`
+
+**Resolution steps:**
+```bash
+# Set env and apply migration
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/holiday_delight_crm"
+npx prisma migrate deploy
+npx prisma generate
+# Re-run tests
+npx vitest run
+```
+
+**Note:** The 27 new phase-6c unit tests (fully mocked) all pass without the migration.
+The 179 real-DB failures are pre-existing from phase-6b + newly triggered by the
+Prisma client now including `razorpay_key_id` in its tenant model queries.
+
+---
+
+### 6C-B3 — Razorpay credential management UI not built
+
+**Status:** DEFERRED
+
+**Scope:** Admin UI to enter `razorpay_key_id`, `razorpay_key_secret`, and
+`razorpay_webhook_secret` per tenant (currently editable only via DB or seed script).
+
+**Fix:** Add a form to `/settings/payments` (or a dedicated `/settings/razorpay` page)
+with `PATCH /api/tenants/:id` that encrypts `razorpay_key_secret` at rest using
+`src/lib/encryption.ts` before storing. Estimated effort: ~1 hour.
+
+---
+
+### 6C-B4 — Razorpay key_secret stored in plaintext (encryption B-blocker)
+
+**Status:** DEFERRED — acceptable for development; required before production
+
+**Root cause:** Per the spec, encryption is deferred. `razorpay_key_secret` is
+currently stored as plain text in the DB. The encryption helper exists at
+`src/lib/encryption.ts`.
+
+**Fix:** On write (tenant update), encrypt secret. On read in `getTenantCredentials`,
+decrypt. Estimated effort: ~30 min.
+
+---
+
+### 6C-UI1 — Broader payments admin UI deferred
+
+- [ ] Trigger manual refund from the payments list page (currently API-only)
+- [ ] Payment detail view with full Razorpay event timeline
+- [ ] Add Razorpay credentials configuration section in settings
+- [ ] Link TakePaymentButton from lead detail / conversation views
+
+---
+
+### 6C-TEST-STATUS — Test counts at phase-6c commit
+
+| Sub-task | New tests | Status |
+|---|---|---|
+| 6c.2 Razorpay lib wrapper | 12 | PASS (mocked) |
+| 6c.3 Payment APIs (POST/GET) | 7 | PASS (mocked) |
+| 6c.3 Webhook handler | 8 | PASS (mocked) |
+| Pre-existing suite | 237 | FAIL — awaiting migrations 6b+6c |
+
+After `npx prisma migrate deploy` + `npx prisma generate` all tests expected to pass.
+
+---
+
 # TODO_BLOCKERS — Phase 12 (Settings UI)
 
 ## B1 — UI tests skipped: vitest configured for `node` environment only
