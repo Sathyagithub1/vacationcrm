@@ -152,7 +152,7 @@ export async function createOrder(
     currency: params.currency ?? "INR",
     receipt: params.receipt,
     notes: params.notes ?? {},
-  })) as RazorpayOrderResponse;
+  })) as unknown as RazorpayOrderResponse;
 
   return {
     orderId: res.id,
@@ -180,7 +180,7 @@ export async function refundPayment(
   const body: { amount?: number } = {};
   if (amountPaise !== undefined) body.amount = amountPaise;
 
-  const res = (await client.payments.refund(paymentId, body)) as RazorpayRefundResponse;
+  const res = (await client.payments.refund(paymentId, body)) as unknown as RazorpayRefundResponse;
 
   return {
     refundId: res.id,

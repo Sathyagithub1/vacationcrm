@@ -31,22 +31,21 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 // ── Razorpay SDK mock ─────────────────────────────────────────────────────────
-// Mock the Razorpay constructor to return an object with SDK methods
+// vi.fn().mockImplementation() doesn't reliably support `new` in some vitest
+// versions — use a real class so `new Razorpay(opts)` returns an instance with
+// the mocked methods attached.
 vi.mock("razorpay", () => {
-  const MockRazorpay = vi.fn().mockImplementation(() => ({
-    orders: { create: mockOrdersCreate },
-    payments: { refund: mockPaymentsRefund },
-  }));
-
-  // Static method: validateWebhookSignature
-  (MockRazorpay as unknown as {
-    validateWebhookSignature: (body: string, sig: string, secret: string) => boolean;
-  }).validateWebhookSignature = (body: string, signature: string, secret: string): boolean => {
-    // Replicate Razorpay's HMAC-SHA256 hex comparison
-    const expected = createHmac("sha256", secret).update(body, "utf8").digest("hex");
-    return expected === signature;
-  };
-
+  class MockRazorpay {
+    orders = { create: mockOrdersCreate };
+    payments = { refund: mockPaymentsRefund };
+    constructor(_opts: { key_id: string; key_secret: string }) {
+      void _opts;
+    }
+    static validateWebhookSignature(body: string, signature: string, secret: string): boolean {
+      const expected = createHmac("sha256", secret).update(body, "utf8").digest("hex");
+      return expected === signature;
+    }
+  }
   return { default: MockRazorpay };
 });
 

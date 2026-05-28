@@ -176,6 +176,8 @@ describe("ExotelAdapter.transferToAgent", () => {
 // ── playTts / startRecording / stopRecording (XML-level no-ops) ───────────────
 
 describe("ExotelAdapter XML-level methods", () => {
+  beforeEach(() => vi.restoreAllMocks());
+
   it("playTts is a no-op (does not call fetch)", async () => {
     const adapter = new ExotelAdapter(VALID_CREDS, WEBHOOK_SECRET);
     const mockFetch = vi.spyOn(global, "fetch");
