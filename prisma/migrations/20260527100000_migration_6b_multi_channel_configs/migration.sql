@@ -87,7 +87,9 @@ ALTER TABLE "broadcasts"
 -- 6b.3: CustomerMemory — new table
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE TYPE IF NOT EXISTS "CustomerMemoryKind" AS ENUM ('FACT', 'PREFERENCE', 'SUMMARY');
+DO $$ BEGIN
+  CREATE TYPE "CustomerMemoryKind" AS ENUM ('FACT', 'PREFERENCE', 'SUMMARY');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 CREATE TABLE IF NOT EXISTS "customer_memories" (
   "id"               TEXT NOT NULL DEFAULT gen_random_uuid()::text,
@@ -118,11 +120,13 @@ CREATE INDEX IF NOT EXISTS "customer_memories_tenant_id_customer_id_idx"
 -- 6b.4: EscalationRule — new table + enums
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE TYPE IF NOT EXISTS "EscalationRuleType" AS ENUM (
-  'MESSAGE_COUNT_THRESHOLD', 'DURATION', 'AI_INTENT'
-);
+DO $$ BEGIN
+  CREATE TYPE "EscalationRuleType" AS ENUM ('MESSAGE_COUNT_THRESHOLD', 'DURATION', 'AI_INTENT');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TYPE IF NOT EXISTS "EscalationRuleAction" AS ENUM ('ESCALATE', 'PARK', 'NOTIFY');
+DO $$ BEGIN
+  CREATE TYPE "EscalationRuleAction" AS ENUM ('ESCALATE', 'PARK', 'NOTIFY');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 CREATE TABLE IF NOT EXISTS "escalation_rules" (
   "id"         TEXT NOT NULL DEFAULT gen_random_uuid()::text,

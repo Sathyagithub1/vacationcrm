@@ -231,7 +231,8 @@ describe("auto-escalate", () => {
         customerId: customer.id,
         channel: "WHATSAPP",
         status: "ACTIVE",
-        startedAt: new Date(Date.now() - 100), // ancient enough for 0.001h
+        // startedAt 1 hour ago — well past maxHours: 0.001 (≈ 3.6 seconds)
+        startedAt: new Date(Date.now() - 60 * 60 * 1000),
       },
     });
 
