@@ -111,21 +111,17 @@ describe("transcribeAudio — Google provider", () => {
     vi.restoreAllMocks();
   });
 
-  it("calls Google Speech API with API key in query param", async () => {
+  it("calls Google Speech API with API key in query param (using GCS URL)", async () => {
     setTenant("GOOGLE", "test-google-api-key");
+    // Use a GCS URL so only ONE fetch is needed (no audio prefetch)
     const mockFetch = mockGoogleSttSuccess("Hello, I want to book a trip");
 
-    await transcribeAudio("tenant-1", "https://cdn.example.com/call.mp3", "en-IN");
+    await transcribeAudio("tenant-1", "gs://bucket/call.mp3", "en-IN");
 
-    // First call is the Google STT API (second would be audio fetch, but GCS is used for gs://)
-    // For non-GCS: first call fetches audio, second calls Google
-    const calls = mockFetch.mock.calls;
-    // The audio fetch comes first; find the Google API call
-    const googleCall = calls.find(([url]) =>
-      (url as string).includes("speech.googleapis.com"),
-    );
-    expect(googleCall).toBeDefined();
-    expect(googleCall![0] as string).toContain("key=test-google-api-key");
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url] = mockFetch.mock.calls[0] as [string];
+    expect(url).toContain("speech.googleapis.com");
+    expect(url).toContain("key=test-google-api-key");
   });
 
   it("uses audio.uri for GCS URLs (no audio fetch)", async () => {

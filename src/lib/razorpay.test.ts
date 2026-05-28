@@ -39,12 +39,13 @@ vi.mock("razorpay", () => {
   }));
 
   // Static method: validateWebhookSignature
-  (MockRazorpay as unknown as { validateWebhookSignature: typeof createHmac }).validateWebhookSignature =
-    (body: string, signature: string, secret: string): boolean => {
-      // Replicate Razorpay's HMAC-SHA256 hex comparison
-      const expected = createHmac("sha256", secret).update(body, "utf8").digest("hex");
-      return expected === signature;
-    };
+  (MockRazorpay as unknown as {
+    validateWebhookSignature: (body: string, sig: string, secret: string) => boolean;
+  }).validateWebhookSignature = (body: string, signature: string, secret: string): boolean => {
+    // Replicate Razorpay's HMAC-SHA256 hex comparison
+    const expected = createHmac("sha256", secret).update(body, "utf8").digest("hex");
+    return expected === signature;
+  };
 
   return { default: MockRazorpay };
 });
