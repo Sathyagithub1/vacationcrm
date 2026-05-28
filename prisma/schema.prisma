@@ -384,6 +384,8 @@ model Tenant {
   tours              Tour[]
   spamRules          SpamRule[]
   spamLogs           SpamLog[]
+  customerMemories   CustomerMemory[]
+  escalationRules    EscalationRule[]
 
   @@map("tenants")
 }
@@ -494,6 +496,7 @@ model Department {
   intakeForms     IntakeForm[]
   assignmentPools AssignmentPool[]
   tours           Tour[]
+  channelConfigs  ChannelConfig[]  @relation("ChannelConfigDept")
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -532,6 +535,8 @@ model Customer {
   notes          String?   @map("notes")
   totalLeads     Int       @default(0) @map("total_leads")
   lastLeadDate   DateTime? @map("last_lead_date")
+  /// Tag IDs applied to this customer (references Tag.id)
+  tagIds         String[]  @default([]) @map("tag_ids")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -542,6 +547,7 @@ model Customer {
   conversations       Conversation[]       @relation("ConversationCustomer")
   widgetVisitors      WidgetVisitor[]
   tourBookings        TourBooking[]
+  memories            CustomerMemory[]
 
   @@unique([tenantId, mobile])
   @@index([tenantId])
@@ -672,25 +678,35 @@ model Callback {
 }
 
 model Conversation {
-  id              String              @id @default(uuid()) @map("id")
-  tenantId        String              @map("tenant_id")
-  leadId          String?             @map("lead_id")
-  customerId      String?             @map("customer_id")
-  channel         ConversationChannel @default(MANUAL) @map("channel")
-  status          ConversationStatus  @default(ACTIVE) @map("status")
-  assignedAgentId String?             @map("assigned_agent_id")
-  startedAt       DateTime            @default(now()) @map("started_at")
-  closedAt        DateTime?           @map("closed_at")
+  id                String              @id @default(uuid()) @map("id")
+  tenantId          String              @map("tenant_id")
+  leadId            String?             @map("lead_id")
+  customerId        String?             @map("customer_id")
+  channel           ConversationChannel @default(MANUAL) @map("channel")
+  status            ConversationStatus  @default(ACTIVE) @map("status")
+  assignedAgentId   String?             @map("assigned_agent_id")
+  startedAt         DateTime            @default(now()) @map("started_at")
+  closedAt          DateTime?           @map("closed_at")
+  /// Links to the specific ChannelConfig (= specific WhatsApp number) this conversation came through
+  channelConfigId   String?             @map("channel_config_id")
+  /// AI-generated summary written when the conversation is closed
+  summary           String?             @map("summary")
+  /// Timestamp when auto-escalation fired
+  escalatedAt       DateTime?           @map("escalated_at")
+  /// Human-readable reason for auto-escalation
+  escalationReason  String?             @map("escalation_reason")
 
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead            Lead?            @relation(fields: [leadId], references: [id], onDelete: Cascade)
   customer        Customer?        @relation("ConversationCustomer", fields: [customerId], references: [id])
   agent           User?            @relation(fields: [assignedAgentId], references: [id])
+  channelConfig   ChannelConfig?   @relation(fields: [channelConfigId], references: [id])
   messages        Message[]
   escalations     Escalation[]
   aiConversations AIConversation[]
 
   @@index([tenantId])
+  @@index([tenantId, customerId])
   @@map("conversations")
 }
 
@@ -766,6 +782,8 @@ model Broadcast {
   channel         BroadcastChannel    @map("channel")
   targetType      BroadcastTargetType @map("target_type")
   targetFilter    Json?               @map("target_filter")
+  /// Tag IDs to filter audience — intersection of all provided tag IDs
+  targetTagIds    String[]            @default([]) @map("target_tag_ids")
   status          BroadcastStatus     @default(DRAFT) @map("status")
   scheduledAt     DateTime?           @map("scheduled_at")
   sentAt          DateTime?           @map("sent_at")
@@ -961,21 +979,32 @@ model AIToolCall {
 // ─── Phase 3: Multichannel Models ────────────────────────────────────────────
 
 model ChannelConfig {
-  id            String              @id @default(uuid()) @map("id")
-  tenantId      String              @map("tenant_id")
-  channel       ConversationChannel @map("channel")
-  credentials   String              @map("credentials") @db.Text
-  webhookSecret String?             @map("webhook_secret")
-  config        Json?               @map("config")
-  isActive      Boolean             @default(false) @map("is_active")
-  verifiedAt    DateTime?           @map("verified_at")
-  createdAt     DateTime            @default(now()) @map("created_at")
-  updatedAt     DateTime            @updatedAt @map("updated_at")
+  id                   String              @id @default(uuid()) @map("id")
+  tenantId             String              @map("tenant_id")
+  channel              ConversationChannel @map("channel")
+  /// Admin-visible label, e.g. "Goa Team", "VIP Sales"
+  label                String?             @map("label")
+  /// WhatsApp phone number ID / Facebook Page ID / etc.
+  externalId           String?             @map("external_id")
+  /// Default department to route inbounds from this number to
+  assignedDepartmentId String?             @map("assigned_department_id")
+  /// Exactly one primary per (tenant, channel) — used for outbound fallback
+  isPrimary            Boolean             @default(false) @map("is_primary")
+  credentials          String              @map("credentials") @db.Text
+  webhookSecret        String?             @map("webhook_secret")
+  config               Json?               @map("config")
+  isActive             Boolean             @default(false) @map("is_active")
+  verifiedAt           DateTime?           @map("verified_at")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedDepartment Department?    @relation("ChannelConfigDept", fields: [assignedDepartmentId], references: [id])
+  conversations      Conversation[]
 
-  @@unique([tenantId, channel])
+  @@unique([tenantId, channel, externalId])
   @@index([tenantId])
+  @@index([tenantId, channel])
   @@map("channel_configs")
 }
 
@@ -1348,4 +1377,64 @@ model SpamLog {
 
   @@index([tenantId, occurredAt])
   @@map("spam_logs")
+}
+
+// ─── Phase 6b: Multi-channel, Memory, Escalation Rules ───────────────────────
+
+enum CustomerMemoryKind {
+  FACT
+  PREFERENCE
+  SUMMARY
+}
+
+enum EscalationRuleType {
+  MESSAGE_COUNT_THRESHOLD
+  DURATION
+  AI_INTENT
+}
+
+enum EscalationRuleAction {
+  ESCALATE
+  PARK
+  NOTIFY
+}
+
+/// Persistent facts/preferences/summaries remembered for a customer across conversations.
+model CustomerMemory {
+  id              String             @id @default(uuid()) @map("id")
+  tenantId        String             @map("tenant_id")
+  customerId      String             @map("customer_id")
+  kind            CustomerMemoryKind @map("kind")
+  content         String             @map("content")
+  sourceMessageId String?            @map("source_message_id")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, customerId, kind, content])
+  @@index([tenantId, customerId])
+  @@map("customer_memories")
+}
+
+/// Rules that auto-escalate, park, or notify when a conversation shows time-waster signals.
+model EscalationRule {
+  id       String               @id @default(uuid()) @map("id")
+  tenantId String               @map("tenant_id")
+  name     String               @map("name")
+  type     EscalationRuleType   @map("type")
+  /// JSON config matching the rule type:
+  ///   MESSAGE_COUNT_THRESHOLD: { threshold: number, windowHours: number, bookingSignals: string[] }
+  ///   DURATION: { maxHours: number }
+  ///   AI_INTENT: { negativeSignals: string[] }
+  config   Json                 @map("config")
+  action   EscalationRuleAction @map("action")
+  isActive Boolean              @default(true) @map("is_active")
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, isActive])
+  @@map("escalation_rules")
 }

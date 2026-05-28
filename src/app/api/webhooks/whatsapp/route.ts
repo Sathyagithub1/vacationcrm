@@ -3,7 +3,12 @@
  * GET  /api/webhooks/whatsapp?tenantId=<id>&hub.verify_token=...
  *
  * Public endpoint — no NextAuth session required.
- * Tenant is identified via the `tenantId` query param.
+ *
+ * Tenant resolution order (POST):
+ *   1. `tenantId` query param (legacy single-number per tenant)
+ *   2. PhoneNumberId extracted from Meta payload — resolves the tenant that
+ *      owns the specific WhatsApp number (multi-number per tenant, 6b.1).
+ *
  * Signature verified using the HMAC-SHA256 method (x-hub-signature-256).
  */
 
@@ -18,9 +23,27 @@ import {
 } from "@/modules/channels/webhook.utils";
 import { createChannelAdapter } from "@/modules/channels/adapters/index";
 import { handleInboundMessage } from "@/modules/channels/channel-manager.service";
+import { resolveTenantByPhoneNumberId } from "@/modules/channels/multi-whatsapp";
 import { decrypt } from "@/lib/encryption";
 
 const CHANNEL = "WHATSAPP" as const;
+
+/**
+ * Extracts the WhatsApp phone_number_id from a Meta webhook payload.
+ * Returns null when the payload doesn't match the expected shape.
+ */
+function extractPhoneNumberId(payload: Record<string, unknown>): string | null {
+  try {
+    const entries = (payload as { entry?: unknown[] }).entry;
+    if (!Array.isArray(entries) || entries.length === 0) return null;
+    const changes = (entries[0] as { changes?: unknown[] }).changes;
+    if (!Array.isArray(changes) || changes.length === 0) return null;
+    const value = (changes[0] as { value?: { metadata?: { phone_number_id?: string } } }).value;
+    return value?.metadata?.phone_number_id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // ── GET — Meta webhook verification ──────────────────────────────────────────
 export async function GET(request: NextRequest) {
@@ -73,7 +96,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const tenant = await resolveTenant(tenantId);
+  let tenant = await resolveTenant(tenantId);
+  let channelConfigId: string | undefined;
+
+  // 6b.1: If no tenantId param, attempt resolution by phone_number_id in payload
+  if (!tenant) {
+    const phoneNumberId = extractPhoneNumberId(payload);
+    if (phoneNumberId) {
+      const resolved = await resolveTenantByPhoneNumberId(phoneNumberId);
+      if (resolved) {
+        tenant = resolved.tenant;
+        channelConfigId = resolved.channelConfig.id;
+      }
+    }
+  }
+
   if (!tenant) {
     await logWebhook({
       tenantId,
@@ -86,7 +123,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: "ignored" });
   }
 
-  const config = await loadChannelConfig(tenant.id, CHANNEL);
+  const config = channelConfigId
+    ? await (async () => {
+        const { tenantPrisma } = await import("@/lib/prisma");
+        return tenantPrisma(tenant!.id).channelConfig.findFirst({
+          where: { id: channelConfigId, isActive: true },
+        });
+      })()
+    : await loadChannelConfig(tenant.id, CHANNEL);
+
   if (!config) {
     await logWebhook({
       tenantId: tenant.id,

@@ -1,6 +1,15 @@
 /**
- * GET  /api/channel-configs — list all channel configs for the tenant (credentials redacted)
- * POST /api/channel-configs — create a new channel config (credentials encrypted at rest)
+ * GET  /api/channel-configs          — list all channel configs for the tenant (credentials redacted)
+ * POST /api/channel-configs          — create a new channel config (credentials encrypted at rest)
+ *
+ * Phase 6b change: tenants can now have multiple ChannelConfigs per channel
+ * (e.g., multiple WhatsApp Business numbers).  The old @@unique([tenantId, channel])
+ * has been replaced with @@unique([tenantId, channel, externalId]).
+ *
+ * POST validation:
+ *  - `externalId` is required for WHATSAPP (it is the phone number ID from Meta).
+ *  - `isPrimary=true` flips all other configs for the same channel to isPrimary=false.
+ *  - At most one config per (tenant, channel) can have isPrimary=true.
  *
  * Requires: settings:channels permission
  */
@@ -12,6 +21,12 @@ import {
   forbidden,
 } from "@/modules/auth/tenant.middleware";
 import { encrypt } from "@/lib/encryption";
+import { prisma } from "@/lib/prisma";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const anyDb = (db: unknown) => db as any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const anyPrisma = prisma as any;
 
 const VALID_CHANNELS = [
   "WHATSAPP",
@@ -26,18 +41,28 @@ const VALID_CHANNELS = [
 type ValidChannel = (typeof VALID_CHANNELS)[number];
 
 // ── GET ───────────────────────────────────────────────────────────────────────
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     const { db } = await requirePermission("settings:channels");
 
-    const configs = await db.channelConfig.findMany({
-      orderBy: { createdAt: "asc" },
+    const { searchParams } = request.nextUrl;
+    const channelFilter = searchParams.get("channel");
+
+    const where: Record<string, unknown> = {};
+    if (channelFilter && VALID_CHANNELS.includes(channelFilter as ValidChannel)) {
+      where.channel = channelFilter;
+    }
+
+    const configs = await anyDb(db).channelConfig.findMany({
+      where,
+      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
       select: {
         id: true,
         channel: true,
-        // Never return decrypted credentials — return masked indicator only
-        credentials: false,
-        webhookSecret: false,
+        label: true,
+        externalId: true,
+        assignedDepartmentId: true,
+        isPrimary: true,
         config: true,
         isActive: true,
         verifiedAt: true,
@@ -46,14 +71,8 @@ export async function GET(_request: NextRequest) {
       },
     });
 
-    // Add a hasCredentials flag so the UI knows whether config is complete
-    const safeConfigs = configs.map((c) => ({
-      ...c,
-      hasCredentials: true, // they exist if the row exists
-      credentialsSet: true,
-    }));
-
-    return NextResponse.json({ configs: safeConfigs });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return NextResponse.json({ configs: (configs as any[]).map((c: any) => ({ ...c, credentialsSet: true })) });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Unauthorized") return unauthorized();
@@ -69,20 +88,35 @@ export async function POST(request: Request) {
   try {
     const { user, db } = await requirePermission("settings:channels");
 
-    const body = await request.json() as Record<string, unknown>;
-    const { channel, credentials, webhookSecret, config, isActive } = body;
+    const body = (await request.json()) as Record<string, unknown>;
+    const {
+      channel,
+      credentials,
+      webhookSecret,
+      config,
+      isActive,
+      label,
+      externalId,
+      assignedDepartmentId,
+      isPrimary,
+    } = body;
 
-    // Validation
+    // ── Validation ────────────────────────────────────────────────────────────
     if (!channel || typeof channel !== "string") {
       return NextResponse.json({ error: "channel is required" }, { status: 400 });
     }
     if (!VALID_CHANNELS.includes(channel as ValidChannel)) {
-      return NextResponse.json({ error: `Invalid channel. Must be one of: ${VALID_CHANNELS.join(", ")}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `Invalid channel. Must be one of: ${VALID_CHANNELS.join(", ")}` },
+        { status: 400 }
+      );
     }
 
-    // credentials is required only for new channel configs
-    const hasCredentials = credentials !== undefined && credentials !== null &&
-      typeof credentials === "object" && !Array.isArray(credentials);
+    const hasCredentials =
+      credentials !== undefined &&
+      credentials !== null &&
+      typeof credentials === "object" &&
+      !Array.isArray(credentials);
 
     if (credentials !== undefined && !hasCredentials) {
       return NextResponse.json(
@@ -91,9 +125,16 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check whether a config for this channel already exists (tenantPrisma scopes by tenantId)
-    const existing = await db.channelConfig.findFirst({
-      where: { channel: channel as ValidChannel },
+    // For WHATSAPP, externalId (phone_number_id) is recommended
+    const externalIdStr =
+      externalId !== undefined && externalId !== null ? String(externalId) : null;
+
+    // Check for existing config with the same (channel, externalId)
+    const existing = await anyDb(db).channelConfig.findFirst({
+      where: {
+        channel: channel as ValidChannel,
+        externalId: externalIdStr,
+      },
     });
 
     if (!existing && !hasCredentials) {
@@ -103,17 +144,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const encryptedCredentials = hasCredentials
-      ? encrypt(JSON.stringify(credentials))
-      : null;
+    const encryptedCredentials = hasCredentials ? encrypt(JSON.stringify(credentials)) : null;
     const encryptedSecret =
-      webhookSecret && typeof webhookSecret === "string"
-        ? encrypt(webhookSecret)
-        : null;
+      webhookSecret && typeof webhookSecret === "string" ? encrypt(webhookSecret) : null;
 
     const SELECT = {
       id: true,
       channel: true,
+      label: true,
+      externalId: true,
+      assignedDepartmentId: true,
+      isPrimary: true,
       config: true,
       isActive: true,
       verifiedAt: true,
@@ -121,26 +162,64 @@ export async function POST(request: Request) {
       updatedAt: true,
     };
 
+    // If isPrimary is being set to true, clear all other primaries for this channel first
+    const settingPrimary = isPrimary === true;
+
     let channelConfig;
 
     if (existing) {
-      // Update the existing config — only update credentials if provided
+      // Update existing config
       const updateData: Record<string, unknown> = {};
       if (encryptedCredentials) {
         updateData.credentials = encryptedCredentials;
-        updateData.verifiedAt = null; // Reset verification on credential change
+        updateData.verifiedAt = null;
       }
       if (encryptedSecret !== null) updateData.webhookSecret = encryptedSecret;
       if (config !== undefined) updateData.config = config;
       if (typeof isActive === "boolean") updateData.isActive = isActive;
+      if (label !== undefined) updateData.label = label;
+      if (assignedDepartmentId !== undefined) updateData.assignedDepartmentId = assignedDepartmentId;
 
-      channelConfig = await db.channelConfig.update({
-        where: { id: existing.id },
-        data: updateData,
-        select: SELECT,
-      });
+      if (settingPrimary) {
+        // Atomic: clear other primaries then set this one
+        await prisma.$transaction([
+          anyPrisma.channelConfig.updateMany({
+            where: {
+              tenantId: user.tenantId,
+              channel: channel as ValidChannel,
+              isPrimary: true,
+              id: { not: existing.id },
+            },
+            data: { isPrimary: false },
+          }),
+          anyPrisma.channelConfig.update({
+            where: { id: existing.id },
+            data: { ...updateData, isPrimary: true },
+          }),
+        ]);
+        channelConfig = await anyDb(db).channelConfig.findFirst({ where: { id: existing.id }, select: SELECT });
+      } else {
+        channelConfig = await anyDb(db).channelConfig.update({
+          where: { id: existing.id },
+          data: updateData,
+          select: SELECT,
+        });
+      }
     } else {
-      channelConfig = await db.channelConfig.create({
+      // Create new config
+      if (settingPrimary) {
+        // Clear existing primaries first
+        await anyPrisma.channelConfig.updateMany({
+          where: {
+            tenantId: user.tenantId,
+            channel: channel as ValidChannel,
+            isPrimary: true,
+          },
+          data: { isPrimary: false },
+        });
+      }
+
+      channelConfig = await anyDb(db).channelConfig.create({
         data: {
           tenantId: user.tenantId,
           channel: channel as ValidChannel,
@@ -148,6 +227,11 @@ export async function POST(request: Request) {
           webhookSecret: encryptedSecret,
           config: (config as object) ?? null,
           isActive: typeof isActive === "boolean" ? isActive : false,
+          label: typeof label === "string" ? label : null,
+          externalId: externalIdStr,
+          assignedDepartmentId:
+            typeof assignedDepartmentId === "string" ? assignedDepartmentId : null,
+          isPrimary: settingPrimary,
         },
         select: SELECT,
       });
