@@ -386,6 +386,10 @@ model Tenant {
   spamLogs           SpamLog[]
   customerMemories   CustomerMemory[]
   escalationRules    EscalationRule[]
+  payments           Payment[]
+  razorpayKeyId      String? @map("razorpay_key_id")
+  razorpayKeySecret  String? @map("razorpay_key_secret")
+  razorpayWebhookSecret String? @map("razorpay_webhook_secret")
 
   @@map("tenants")
 }
@@ -548,6 +552,7 @@ model Customer {
   widgetVisitors      WidgetVisitor[]
   tourBookings        TourBooking[]
   memories            CustomerMemory[]
+  payments            Payment[]
 
   @@unique([tenantId, mobile])
   @@index([tenantId])
@@ -591,6 +596,7 @@ model Lead {
   score         LeadScore?
   predictions   Prediction[]
   tourBookings  TourBooking[]
+  payments      Payment[]
 
   @@index([tenantId])
   @@index([tenantId, departmentId])
@@ -1315,6 +1321,7 @@ model Tour {
   department Department    @relation(fields: [departmentId], references: [id])
   bookings   TourBooking[]
   leads      Lead[]
+  payments   Payment[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -1330,9 +1337,10 @@ model TourBooking {
   status     TourBookingStatus @default(CONFIRMED)
   bookedAt   DateTime          @default(now()) @map("booked_at")
 
-  tour     Tour     @relation(fields: [tourId], references: [id], onDelete: Cascade)
-  lead     Lead?    @relation(fields: [leadId], references: [id])
-  customer Customer @relation(fields: [customerId], references: [id])
+  tour     Tour      @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  lead     Lead?     @relation(fields: [leadId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  payments Payment[]
 
   @@index([tourId, status])
   @@map("tour_bookings")
@@ -1377,6 +1385,48 @@ model SpamLog {
 
   @@index([tenantId, occurredAt])
   @@map("spam_logs")
+}
+
+// ─── Phase 6c: Razorpay Payments ─────────────────────────────────────────────
+
+enum PaymentStatus {
+  CREATED       // Razorpay order created, awaiting payment
+  AUTHORIZED    // Payment authorized but not captured
+  CAPTURED      // Payment successful, booking created
+  FAILED        // Payment failed
+  REFUND_PENDING
+  REFUNDED
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  tenantId          String        @map("tenant_id")
+  leadId            String?       @map("lead_id")
+  customerId        String        @map("customer_id")
+  tourId            String?       @map("tour_id")
+  seats             Int           @default(1)
+  amountPaise       Int           @map("amount_paise")
+  currency          String        @default("INR")
+  razorpayOrderId   String        @unique @map("razorpay_order_id")
+  razorpayPaymentId String?       @unique @map("razorpay_payment_id")
+  status            PaymentStatus @default(CREATED)
+  notes             Json?
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  paidAt            DateTime?     @map("paid_at")
+  refundedAt        DateTime?     @map("refunded_at")
+  errorMessage      String?       @map("error_message")
+  bookingId         String?       @map("booking_id")
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer     @relation(fields: [customerId], references: [id])
+  lead     Lead?        @relation(fields: [leadId], references: [id])
+  tour     Tour?        @relation(fields: [tourId], references: [id])
+  booking  TourBooking? @relation(fields: [bookingId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("payments")
 }
 
 // ─── Phase 6b: Multi-channel, Memory, Escalation Rules ───────────────────────
