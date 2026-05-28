@@ -24,6 +24,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { decryptIfEncrypted } from "@/lib/crypto/credential-encryption";
 import type { TelephonyProvider } from "./types";
 import { ExotelAdapter } from "./exotel";
 import { PlivoAdapter } from "./plivo";
@@ -69,15 +70,20 @@ export async function getTelephonyProvider(
 
   const provider = tenant.telephonyProvider.toLowerCase();
 
+  // Decrypt telephonyApiSecret at read time.
+  // telephonyApiKey is not a secret (it is the public key/SID) — no decrypt needed.
+  // NEVER log the decrypted secret.
+  const apiSecret = decryptIfEncrypted(tenant.telephonyApiSecret);
+
   switch (provider) {
     case "exotel":
-      return new ExotelAdapter(tenant.telephonyApiKey, tenant.telephonyApiSecret);
+      return new ExotelAdapter(tenant.telephonyApiKey, apiSecret);
 
     case "plivo":
-      return new PlivoAdapter(tenant.telephonyApiKey, tenant.telephonyApiSecret);
+      return new PlivoAdapter(tenant.telephonyApiKey, apiSecret);
 
     case "twilio":
-      return new TwilioAdapter(tenant.telephonyApiKey, tenant.telephonyApiSecret);
+      return new TwilioAdapter(tenant.telephonyApiKey, apiSecret);
 
     default:
       throw new Error(

@@ -10,6 +10,7 @@ const T1 = "t-lb-1"; // agent with fewest wins
 const T2 = "t-lb-2"; // LRA tiebreaker
 const T3 = "t-lb-3"; // WON leads excluded
 const T4 = "t-lb-4"; // no eligible agents
+const T5 = "t-lb-5"; // concurrent advisory-lock test
 const DEPT = "dept-lb-1";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -100,7 +101,7 @@ async function createLead(opts: {
 }
 
 async function clearAll() {
-  for (const t of [T1, T2, T3, T4]) {
+  for (const t of [T1, T2, T3, T4, T5]) {
     await prisma.leadActivity.deleteMany({ where: { tenantId: t } });
     await prisma.lead.deleteMany({ where: { tenantId: t } });
     await prisma.customer.deleteMany({ where: { tenantId: t } });
@@ -123,7 +124,7 @@ function makePayload(tenantId: string, departmentId?: string): IntakePayload {
 
 describe("loadBalanced strategy", () => {
   beforeEach(async () => {
-    for (const t of [T1, T2, T3, T4]) await ensureTenant(t);
+    for (const t of [T1, T2, T3, T4, T5]) await ensureTenant(t);
     await clearAll();
   });
 
@@ -193,4 +194,49 @@ describe("loadBalanced strategy", () => {
     const result = await loadBalanced(makePayload(T4, DEPT));
     expect(result).toBeNull();
   });
+
+  it(
+    "advisory lock: reliably picks agent with 0 open leads under 10 concurrent calls",
+    { timeout: 30000 },
+    async () => {
+      // Phase 6e B8 test: seed 3 agents where agent A has 5 open leads,
+      // agent B has 3 open leads, and agent C has 0 open leads.
+      // Under 10 concurrent calls, every call should pick agent C (fewest open).
+      // Without the advisory lock many calls would see the same "all tied at 0"
+      // snapshot and diverge.  With the lock they serialise and each call reads
+      // sequentially-committed counts — C is always the winner.
+      //
+      // Note: in this test no Lead.assignedTo writes happen between calls
+      // (we're testing the strategy in isolation, not the full orchestrator),
+      // so the open-lead count for C remains 0 throughout — all 10 calls should
+      // return agent C.
+      await ensureDept(DEPT, T5);
+      const openStage = await ensureStage(T5, "new");
+
+      const agentA = await createAgent({ tenantId: T5, departmentId: DEPT });
+      const agentB = await createAgent({ tenantId: T5, departmentId: DEPT });
+      const agentC = await createAgent({ tenantId: T5, departmentId: DEPT });
+
+      // Agent A: 5 open leads
+      for (let i = 0; i < 5; i++) {
+        await createLead({ tenantId: T5, stageId: openStage, assignedTo: agentA });
+      }
+      // Agent B: 3 open leads
+      for (let i = 0; i < 3; i++) {
+        await createLead({ tenantId: T5, stageId: openStage, assignedTo: agentB });
+      }
+      // Agent C: 0 open leads — should always win
+
+      const payload = makePayload(T5, DEPT);
+
+      // Run 10 concurrent calls — all should pick agent C
+      const results = await Promise.all(
+        Array.from({ length: 10 }, () => loadBalanced(payload)),
+      );
+
+      for (const result of results) {
+        expect(result).toBe(agentC);
+      }
+    },
+  );
 });

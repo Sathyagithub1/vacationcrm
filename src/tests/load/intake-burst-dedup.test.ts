@@ -168,19 +168,25 @@ describe("intake-burst-dedup", () => {
       // exactly 50 unique customers no matter how many concurrent intakes hit.
       expect(customers).toBe(50);
 
-      // Lead-level dedup is best-effort: dedupCheck reads BEFORE dispatch
-      // writes the Customer, so two concurrent intakes for the same phone
-      // can both pass dedupCheck and produce two Leads. The number of duplicate
-      // Leads is bounded by batch concurrency (≤ batch size per phone collision).
-      // In production this is mitigated by lower webhook arrival rates and
-      // would benefit from per-phone advisory locks (see TODO_BLOCKERS B7).
+      // Phase 6e B7 fix: per-phone advisory lock in dedupCheck PARTIALLY
+      // mitigates the race. The lock serialises dedupCheck reads, but
+      // dispatch's Customer.create + Lead.create happen AFTER the lock is
+      // released. So two concurrent intakes can still both pass dedupCheck
+      // (the second waits, then reads, but the first's dispatch hasn't
+      // committed yet) and both create separate Leads.
       //
-      // We assert the WEAK invariant: every intake produces either a Lead or
-      // a REPEAT_INQUIRY (or fails) — leads + repeats ≈ 100 minus any errors.
+      // The full fix requires holding the lock through dispatch (or pulling
+      // Customer/Lead create up into dedup under the lock). Tracked as the
+      // residual gap in TODO_BLOCKERS B7-RESIDUAL.
+      //
+      // Assertions reflect the v1 partial improvement:
+      //   - customers strictly 50 (DB unique constraint, unchanged)
+      //   - leads ≤ 100 and ≥ 50 (advisory lock helps but doesn't eliminate)
+      //   - leads + repeats ≥ 80 (every intake accounted for)
       expect(leads).toBeGreaterThanOrEqual(50);
       expect(leads).toBeLessThanOrEqual(100);
-      expect(leads + repeats).toBeGreaterThanOrEqual(80); // ≥ 80% of intakes accounted for
-      expect(leads + repeats).toBeLessThanOrEqual(100); // never more than total intakes
+      expect(leads + repeats).toBeGreaterThanOrEqual(80);
+      expect(leads + repeats).toBeLessThanOrEqual(100);
 
       // Log actual numbers so the load profile is visible in CI output
       // eslint-disable-next-line no-console
