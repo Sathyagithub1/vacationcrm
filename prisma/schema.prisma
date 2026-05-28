@@ -387,9 +387,23 @@ model Tenant {
   customerMemories   CustomerMemory[]
   escalationRules    EscalationRule[]
   payments           Payment[]
+  voiceCalls         VoiceCall[]
   razorpayKeyId      String? @map("razorpay_key_id")
   razorpayKeySecret  String? @map("razorpay_key_secret")
   razorpayWebhookSecret String? @map("razorpay_webhook_secret")
+
+  // ── Phase 6d: Telephony + STT/TTS config ───────────────────────────────────
+  telephonyProvider      String?   @map("telephony_provider")
+  telephonyApiKey        String?   @map("telephony_api_key")
+  telephonyApiSecret     String?   @map("telephony_api_secret")
+  telephonyPhoneNumber   String?   @map("telephony_phone_number")
+  sttProvider            String?   @map("stt_provider")
+  sttApiKey              String?   @map("stt_api_key")
+  ttsProvider            String?   @map("tts_provider")
+  ttsApiKey              String?   @map("tts_api_key")
+  voiceAgentEnabled      Boolean   @default(false) @map("voice_agent_enabled")
+  voiceAgentLanguages    String[]  @default([]) @map("voice_agent_languages")
+  voiceAgentSystemPrompt String?   @map("voice_agent_system_prompt")
 
   @@map("tenants")
 }
@@ -553,6 +567,7 @@ model Customer {
   tourBookings        TourBooking[]
   memories            CustomerMemory[]
   payments            Payment[]
+  voiceCalls          VoiceCall[]
 
   @@unique([tenantId, mobile])
   @@index([tenantId])
@@ -597,6 +612,7 @@ model Lead {
   predictions   Prediction[]
   tourBookings  TourBooking[]
   payments      Payment[]
+  voiceCalls    VoiceCall[]
 
   @@index([tenantId])
   @@index([tenantId, departmentId])
@@ -710,6 +726,7 @@ model Conversation {
   messages        Message[]
   escalations     Escalation[]
   aiConversations AIConversation[]
+  voiceCalls      VoiceCall[]
 
   @@index([tenantId])
   @@index([tenantId, customerId])
@@ -1007,6 +1024,7 @@ model ChannelConfig {
   tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   assignedDepartment Department?    @relation("ChannelConfigDept", fields: [assignedDepartmentId], references: [id])
   conversations      Conversation[]
+  voiceCalls         VoiceCall[]
 
   @@unique([tenantId, channel, externalId])
   @@index([tenantId])
@@ -1387,6 +1405,28 @@ model SpamLog {
   @@map("spam_logs")
 }
 
+// ─── Phase 6d: Voice + IVR Enums ─────────────────────────────────────────────
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum VoiceCallStatus {
+  RINGING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  MISSED
+  VOICEMAIL
+}
+
+enum VoiceSegmentSpeaker {
+  CUSTOMER
+  BOT
+  AGENT
+}
+
 // ─── Phase 6c: Razorpay Payments ─────────────────────────────────────────────
 
 enum PaymentStatus {
@@ -1487,4 +1527,61 @@ model EscalationRule {
 
   @@index([tenantId, isActive])
   @@map("escalation_rules")
+}
+
+// ─── Phase 6d: Voice + IVR Models ────────────────────────────────────────────
+
+/// A single voice call (inbound or outbound) routed through a telephony provider.
+model VoiceCall {
+  id               String          @id @default(uuid()) @map("id")
+  tenantId         String          @map("tenant_id")
+  customerId       String?         @map("customer_id")
+  leadId           String?         @map("lead_id")
+  conversationId   String?         @map("conversation_id")
+  channelConfigId  String?         @map("channel_config_id")
+  direction        CallDirection   @map("direction")
+  fromNumber       String          @map("from_number")
+  toNumber         String          @map("to_number")
+  /// Provider-assigned call identifier (Exotel callsid / Plivo CallUUID / Twilio CallSid)
+  providerCallSid  String          @unique @map("provider_call_sid")
+  status           VoiceCallStatus @default(RINGING) @map("status")
+  startedAt        DateTime        @default(now()) @map("started_at")
+  answeredAt       DateTime?       @map("answered_at")
+  endedAt          DateTime?       @map("ended_at")
+  durationSeconds  Int?            @map("duration_seconds")
+  recordingUrl     String?         @map("recording_url")
+  transcriptUrl    String?         @map("transcript_url")
+  language         String?         @map("language")
+  intent           String?         @map("intent")
+  notes            Json?           @map("notes")
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer      Customer?       @relation(fields: [customerId], references: [id])
+  lead          Lead?           @relation(fields: [leadId], references: [id])
+  conversation  Conversation?   @relation(fields: [conversationId], references: [id])
+  channelConfig ChannelConfig?  @relation(fields: [channelConfigId], references: [id])
+  segments      VoiceCallSegment[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, startedAt])
+  @@map("voice_calls")
+}
+
+/// A single turn in a voice conversation (one speaker utterance).
+model VoiceCallSegment {
+  id          String               @id @default(uuid()) @map("id")
+  voiceCallId String               @map("voice_call_id")
+  speaker     VoiceSegmentSpeaker  @map("speaker")
+  content     String               @map("content")
+  audioUrl    String?              @map("audio_url")
+  /// Offset in milliseconds from call start
+  startMs     Int                  @map("start_ms")
+  endMs       Int?                 @map("end_ms")
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  voiceCall VoiceCall @relation(fields: [voiceCallId], references: [id], onDelete: Cascade)
+
+  @@index([voiceCallId])
+  @@map("voice_call_segments")
 }
