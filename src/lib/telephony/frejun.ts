@@ -158,7 +158,7 @@ export class FreJunAdapter implements TelephonyProvider {
     webhookUrl: string;
   }): Promise<{ callSid: string }> {
     // FreJun assumption: `from` falls back to the tenant's configured callerNumber.
-    const from = opts.from || this.creds.callerNumber ?? "";
+    const from = opts.from || (this.creds.callerNumber ?? "");
 
     if (!from) {
       throw new Error(
