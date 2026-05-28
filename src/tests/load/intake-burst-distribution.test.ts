@@ -226,21 +226,20 @@ describe("intake-burst-distribution", () => {
       const total = values.reduce((a, b) => a + b, 0);
       expect(total).toBe(NUM_INTAKES);
 
-      // LOAD_BALANCED has fundamentally HIGH variance under concurrent
-      // burst load because every concurrent intake reads the same "all agents
-      // have 0 open leads" snapshot before any writes settle, then converges
-      // on whichever agent happens to win the tiebreaker first. The strategy
-      // is designed for sustained moderate load — NOT for burst-load 100x at
-      // once. See TODO_BLOCKERS B8 for the architectural fix (SELECT FOR
-      // UPDATE on the candidate row).
+      // Phase 6e B8 fix: advisory lock per (tenant, dept) serialises the
+      // agent-selection SELECT so concurrent calls observe sequentially-
+      // committed open-lead counts rather than all reading the same "0 open"
+      // snapshot.  Variance is reduced from ±75% to ±25%.
       //
-      // The weak-but-honest invariants we CAN assert:
-      //   - total leads = 100 (no leads lost or duplicated)
-      //   - every agent got at least 1 lead (no agent completely starved)
-      //   - no agent got more than half the leads (no winner-take-all)
+      // Residual gap: the lock is held only for the SELECT, not through the
+      // Lead.assignedTo write in the orchestrator.  A call can still enter
+      // its SELECT after the lock releases but before the Lead write commits.
+      // This is documented in TODO_BLOCKERS B8 as PARTIALLY_RESOLVED.
+      //
+      // Each agent: 20 ± 5 (range [15, 25])
       for (const [agentId, count] of Object.entries(counts)) {
-        expect(count, `agent ${agentId} got ${count} leads (expected 1-50 — LOAD_BALANCED has high burst variance)`).toBeGreaterThanOrEqual(1);
-        expect(count, `agent ${agentId} got ${count} leads (expected 1-50 — LOAD_BALANCED has high burst variance)`).toBeLessThanOrEqual(50);
+        expect(count, `agent ${agentId} got ${count} leads (expected 15-25 after B8 advisory-lock fix)`).toBeGreaterThanOrEqual(15);
+        expect(count, `agent ${agentId} got ${count} leads (expected 15-25 after B8 advisory-lock fix)`).toBeLessThanOrEqual(25);
       }
     }
   );
