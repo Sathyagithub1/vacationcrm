@@ -168,19 +168,12 @@ describe("intake-burst-dedup", () => {
       // exactly 50 unique customers no matter how many concurrent intakes hit.
       expect(customers).toBe(50);
 
-      // Lead-level dedup is best-effort: dedupCheck reads BEFORE dispatch
-      // writes the Customer, so two concurrent intakes for the same phone
-      // can both pass dedupCheck and produce two Leads. The number of duplicate
-      // Leads is bounded by batch concurrency (≤ batch size per phone collision).
-      // In production this is mitigated by lower webhook arrival rates and
-      // would benefit from per-phone advisory locks (see TODO_BLOCKERS B7).
-      //
-      // We assert the WEAK invariant: every intake produces either a Lead or
-      // a REPEAT_INQUIRY (or fails) — leads + repeats ≈ 100 minus any errors.
-      expect(leads).toBeGreaterThanOrEqual(50);
-      expect(leads).toBeLessThanOrEqual(100);
-      expect(leads + repeats).toBeGreaterThanOrEqual(80); // ≥ 80% of intakes accounted for
-      expect(leads + repeats).toBeLessThanOrEqual(100); // never more than total intakes
+      // Phase 6e B7 fix: per-phone advisory lock in dedupCheck serialises
+      // concurrent intakes for the same phone.  The second intake now waits for
+      // the first to commit, finds the existing Lead, and creates REPEAT_INQUIRY
+      // instead of a duplicate Lead.  Strict invariants now apply.
+      expect(leads).toBe(50);
+      expect(repeats).toBe(50);
 
       // Log actual numbers so the load profile is visible in CI output
       // eslint-disable-next-line no-console
