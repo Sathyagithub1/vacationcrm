@@ -1,7 +1,7 @@
 /**
  * src/app/api/webhooks/voice/[tenantToken]/route.ts
  *
- * Phase 6d — Inbound voice webhook handler (tenant-scoped).
+ * Phase 6f — Inbound voice webhook handler (tenant-scoped).
  *
  * URL: POST /api/webhooks/voice/:tenantToken
  *
@@ -15,13 +15,11 @@
  *   3. Parse call metadata (CallSid/CallUUID, From, To)
  *   4. Create VoiceCall record (status: RINGING)
  *   5. Run ensureConversationForCall to link caller to a Conversation
- *   6. Return a greeting JSON payload with the first prompt to play
+ *   6. Return a greeting — XML for telephony providers, JSON for debug (?format=json)
  *
- * Response shape (v1 — provider-independent JSON):
- *   { playText: string; action: "CONTINUE"; nextWebhookUrl: string }
- *
- * TODO 6D-B4: Translate this JSON to provider-specific XML (ExoML/PHML/TwiML)
- *   at the edge or via a provider-specific formatter middleware.
+ * Response shape:
+ *   Default: Content-Type application/xml (ExoML / PHML / TwiML per provider)
+ *   ?format=json: JSON { playText, action, nextWebhookUrl, voiceCallId }
  *
  * Error handling:
  *   Unknown tenantToken      → 401
@@ -35,11 +33,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getTelephonyProvider } from "@/lib/telephony";
 import { ensureConversationForCall } from "@/modules/voice/conversation-sync";
+import {
+  renderIvrResponse,
+  type IvrProvider,
+} from "@/lib/telephony/xml";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyPrisma = prisma as any;
 
 type RouteContext = { params: Promise<{ tenantToken: string }> };
+
+// Map DB telephonyProvider values to IvrProvider enum
+function toIvrProvider(dbProvider: string | null): IvrProvider | null {
+  switch ((dbProvider ?? "").toLowerCase()) {
+    case "exotel": return "EXOTEL";
+    case "plivo": return "PLIVO";
+    case "twilio": return "TWILIO";
+    default: return null;
+  }
+}
 
 // ── Inbound call payload (provider-normalised) ────────────────────────────────
 
@@ -173,10 +185,25 @@ export async function POST(req: NextRequest, context: RouteContext) {
       ? "Hello! How can I assist you with your travel plans today?"
       : "Thank you for calling. How can I help you today?";
 
-  return NextResponse.json({
+  const nextWebhookUrl = `${baseUrl}/api/webhooks/voice/${tenantToken}/turn`;
+  const jsonPayload = {
     playText: greeting,
     action: "CONTINUE",
-    nextWebhookUrl: `${baseUrl}/api/webhooks/voice/${tenantToken}/turn`,
+    nextWebhookUrl,
     voiceCallId,
-  });
+  };
+
+  // Return XML for telephony providers; JSON for debug/test (?format=json)
+  const wantsJson = req.nextUrl.searchParams.get("format") === "json";
+  const ivrProvider = toIvrProvider(tenant.telephonyProvider);
+
+  if (!wantsJson && ivrProvider) {
+    const xml = renderIvrResponse(ivrProvider, { playText: greeting });
+    return new Response(xml, {
+      status: 200,
+      headers: { "Content-Type": "application/xml; charset=utf-8" },
+    });
+  }
+
+  return NextResponse.json(jsonPayload);
 }

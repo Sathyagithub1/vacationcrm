@@ -1,7 +1,7 @@
 /**
  * src/app/api/webhooks/voice/[tenantToken]/turn/route.ts
  *
- * Phase 6d — IVR per-turn webhook handler (tenant-scoped).
+ * Phase 6f — IVR per-turn webhook handler (tenant-scoped).
  *
  * URL: POST /api/webhooks/voice/:tenantToken/turn
  *
@@ -17,33 +17,39 @@
  *     language?: string;           // BCP-47 override (optional)
  *   }
  *
- * Response shape (v1 — provider-independent JSON):
- *   CONTINUE:
- *     { playText: string; action: "CONTINUE"; nextWebhookUrl: string }
- *   TRANSFER:
- *     { playText: string; action: "TRANSFER"; transferTo: string }
- *   CALLBACK:
- *     { playText: string; action: "CALLBACK" }
- *   END:
- *     { playText: string; action: "END" }
- *
- * TODO 6D-B4: Translate JSON to provider-specific XML at the edge.
+ * Response shape:
+ *   Default: Content-Type application/xml (ExoML / PHML / TwiML per provider)
+ *   ?format=json: JSON { playText, action, nextWebhookUrl | transferTo }
  *
  * Error handling:
  *   Unknown tenantToken → 401
  *   Missing voiceCallId → 400
  *   Mismatched tenant   → 403
- *   DB/AI error         → 500 with fail-soft message
+ *   DB/AI error         → 500 with fail-soft message (XML or JSON)
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runVoiceAgentTurn } from "@/modules/voice/agent";
+import {
+  renderIvrResponse,
+  type IvrProvider,
+} from "@/lib/telephony/xml";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyPrisma = prisma as any;
 
 type RouteContext = { params: Promise<{ tenantToken: string }> };
+
+// Map DB telephonyProvider values to IvrProvider enum
+function toIvrProvider(dbProvider: string | null): IvrProvider | null {
+  switch ((dbProvider ?? "").toLowerCase()) {
+    case "exotel": return "EXOTEL";
+    case "plivo": return "PLIVO";
+    case "twilio": return "TWILIO";
+    default: return null;
+  }
+}
 
 interface TurnBody {
   voiceCallId: string;
@@ -63,6 +69,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     select: {
       id: true,
       telephonyPhoneNumber: true,
+      telephonyProvider: true,
       voiceAgentEnabled: true,
     },
   });
@@ -131,27 +138,58 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
   // ── 5. Build response ─────────────────────────────────────────────────────
   const baseUrl = req.nextUrl.origin;
+  const wantsJson = req.nextUrl.searchParams.get("format") === "json";
+  const ivrProvider = toIvrProvider(tenant.telephonyProvider ?? null);
+
+  /**
+   * Helper: return XML or JSON depending on caller preference and provider.
+   * Telephony providers receive XML; tests / debug tools use ?format=json.
+   */
+  function respond(
+    jsonPayload: Record<string, unknown>,
+    xmlAction: Parameters<typeof renderIvrResponse>[1],
+  ): Response {
+    if (!wantsJson && ivrProvider) {
+      const xml = renderIvrResponse(ivrProvider, xmlAction);
+      return new Response(xml, {
+        status: 200,
+        headers: { "Content-Type": "application/xml; charset=utf-8" },
+      });
+    }
+    return NextResponse.json(jsonPayload);
+  }
 
   switch (result.nextAction) {
     case "CONTINUE":
-      return NextResponse.json({
-        playText: result.responseText,
-        action: "CONTINUE",
-        nextWebhookUrl: `${baseUrl}/api/webhooks/voice/${tenantToken}/turn`,
-      });
+      return respond(
+        {
+          playText: result.responseText,
+          action: "CONTINUE",
+          nextWebhookUrl: `${baseUrl}/api/webhooks/voice/${tenantToken}/turn`,
+        },
+        { playText: result.responseText },
+      );
 
-    case "TRANSFER":
+    case "TRANSFER": {
       // Update call status
       void anyPrisma.voiceCall.update({
         where: { id: voiceCallId },
         data: { status: "COMPLETED", intent: "TRANSFER" },
       }).catch(() => undefined);
 
-      return NextResponse.json({
-        playText: result.responseText,
-        action: "TRANSFER",
-        transferTo: tenant.telephonyPhoneNumber ?? null,
-      });
+      const transferTo = tenant.telephonyPhoneNumber ?? null;
+      return respond(
+        {
+          playText: result.responseText,
+          action: "TRANSFER",
+          transferTo,
+        },
+        {
+          playText: result.responseText,
+          transferTo: transferTo ?? undefined,
+        },
+      );
+    }
 
     case "CALLBACK":
       // Update call status
@@ -160,10 +198,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
         data: { status: "COMPLETED", intent: "CALLBACK" },
       }).catch(() => undefined);
 
-      return NextResponse.json({
-        playText: result.responseText,
-        action: "CALLBACK",
-      });
+      return respond(
+        { playText: result.responseText, action: "CALLBACK" },
+        { playText: result.responseText, hangup: true },
+      );
 
     case "END":
       // Mark call as COMPLETED
@@ -175,9 +213,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
         },
       }).catch(() => undefined);
 
-      return NextResponse.json({
-        playText: result.responseText,
-        action: "END",
-      });
+      return respond(
+        { playText: result.responseText, action: "END" },
+        { playText: result.responseText, hangup: true },
+      );
   }
 }

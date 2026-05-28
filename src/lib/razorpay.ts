@@ -1,25 +1,26 @@
 /**
  * src/lib/razorpay.ts
  *
- * Razorpay REST client wrapper (Phase 6c).
+ * Razorpay SDK client wrapper (Phase 6f).
  *
- * Implementation note — npm SDK unavailable:
- *   The `razorpay` npm package cannot be installed in this environment due to a
- *   TLS certificate chain issue (UNABLE_TO_VERIFY_LEAF_SIGNATURE). A manual
- *   REST client is implemented here using Node's built-in `https` module and the
- *   Razorpay v1 REST API. Behaviour is identical to the official SDK.
- *   See TODO_BLOCKERS.md § 6C-B1 for migration path when npm access is restored.
+ * Uses the official `razorpay` npm SDK (v2.x) instead of the hand-written
+ * REST client from Phase 6c.  The SDK handles authentication, JSON serialisation,
+ * and error parsing — we add tenant credential resolution on top.
  *
  * API base: https://api.razorpay.com/v1
- * Auth: HTTP Basic (key_id : key_secret)
+ * Auth: HTTP Basic (key_id : key_secret) — handled by the SDK
  * Webhook signature: HMAC-SHA256 of raw body with webhook_secret
  *
- * Environment vars — NOT used here; credentials are per-tenant from the DB.
+ * Credentials are per-tenant from the DB; never from environment variables.
  * Never log razorpayKeyId or razorpayKeySecret.
+ *
+ * Webhook signature verification:
+ *   Razorpay.validateWebhookSignature(body, signature, secret) is used.
+ *   We still wrap with a try/catch and explicit false return to ensure
+ *   consistent behaviour when the SDK throws (e.g. malformed input).
  */
 
-import { createHmac, timingSafeEqual } from "crypto";
-import * as https from "https";
+import Razorpay from "razorpay";
 import { prisma } from "@/lib/prisma";
 import { decryptIfEncrypted } from "@/lib/crypto/credential-encryption";
 
@@ -48,14 +49,14 @@ export interface RazorpayRefundResult {
   status: string;
 }
 
+// SDK response shapes (what the Razorpay SDK actually returns)
 interface RazorpayOrderResponse {
   id: string;
   amount: number;
   currency: string;
   receipt?: string;
   status: string;
-  error?: string;
-  description?: string;
+  [key: string]: unknown;
 }
 
 interface RazorpayRefundResponse {
@@ -64,71 +65,7 @@ interface RazorpayRefundResponse {
   amount: number;
   currency: string;
   status: string;
-  error?: string;
-  description?: string;
-}
-
-// ── Internal REST helper ──────────────────────────────────────────────────────
-
-/**
- * Make an authenticated HTTPS request to the Razorpay v1 API.
- * Returns the parsed JSON response body.
- * Throws on HTTP 4xx/5xx with the error description from Razorpay.
- */
-function razorpayRequest<T>(
-  method: "GET" | "POST",
-  path: string,
-  keyId: string,
-  keySecret: string,
-  body?: Record<string, unknown>,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const bodyStr = body ? JSON.stringify(body) : undefined;
-    const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
-
-    const options: https.RequestOptions = {
-      hostname: "api.razorpay.com",
-      path: `/v1${path}`,
-      method,
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        ...(bodyStr ? { "Content-Length": Buffer.byteLength(bodyStr) } : {}),
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        const raw = Buffer.concat(chunks).toString("utf8");
-        let parsed: T;
-        try {
-          parsed = JSON.parse(raw) as T;
-        } catch {
-          reject(new Error(`Razorpay returned non-JSON: ${raw}`));
-          return;
-        }
-
-        const statusCode = res.statusCode ?? 0;
-        if (statusCode >= 400) {
-          const err = parsed as { error?: { description?: string } };
-          const description = err?.error?.description ?? raw;
-          reject(new Error(`Razorpay API error ${statusCode}: ${description}`));
-          return;
-        }
-        resolve(parsed);
-      });
-    });
-
-    req.on("error", (err: Error) => {
-      reject(new Error(`Razorpay HTTP error: ${err.message}`));
-    });
-
-    if (bodyStr) req.write(bodyStr);
-    req.end();
-  });
+  [key: string]: unknown;
 }
 
 // ── Tenant credential resolution ──────────────────────────────────────────────
@@ -180,6 +117,21 @@ export async function getTenantCredentials(tenantId: string): Promise<TenantCred
   };
 }
 
+/**
+ * Build a Razorpay SDK client for the given tenant.
+ * Returns both the client and the raw credentials (for webhookSecret access).
+ */
+async function buildClient(
+  tenantId: string,
+): Promise<{ client: Razorpay; creds: TenantCredentials }> {
+  const creds = await getTenantCredentials(tenantId);
+  const client = new Razorpay({
+    key_id: creds.keyId,
+    key_secret: creds.keySecret,
+  });
+  return { client, creds };
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -193,20 +145,14 @@ export async function createOrder(
   tenantId: string,
   params: RazorpayOrderParams,
 ): Promise<RazorpayOrderResult> {
-  const { keyId, keySecret } = await getTenantCredentials(tenantId);
+  const { client } = await buildClient(tenantId);
 
-  const res = await razorpayRequest<RazorpayOrderResponse>(
-    "POST",
-    "/orders",
-    keyId,
-    keySecret,
-    {
-      amount: params.amountPaise,
-      currency: params.currency ?? "INR",
-      receipt: params.receipt,
-      notes: params.notes ?? {},
-    },
-  );
+  const res = (await client.orders.create({
+    amount: params.amountPaise,
+    currency: params.currency ?? "INR",
+    receipt: params.receipt,
+    notes: params.notes ?? {},
+  })) as unknown as RazorpayOrderResponse;
 
   return {
     orderId: res.id,
@@ -229,18 +175,12 @@ export async function refundPayment(
   paymentId: string,
   amountPaise?: number,
 ): Promise<RazorpayRefundResult> {
-  const { keyId, keySecret } = await getTenantCredentials(tenantId);
+  const { client } = await buildClient(tenantId);
 
-  const body: Record<string, unknown> = {};
+  const body: { amount?: number } = {};
   if (amountPaise !== undefined) body.amount = amountPaise;
 
-  const res = await razorpayRequest<RazorpayRefundResponse>(
-    "POST",
-    `/payments/${paymentId}/refund`,
-    keyId,
-    keySecret,
-    body,
-  );
+  const res = (await client.payments.refund(paymentId, body)) as unknown as RazorpayRefundResponse;
 
   return {
     refundId: res.id,
@@ -254,13 +194,13 @@ export async function refundPayment(
 /**
  * Verify a Razorpay webhook signature.
  *
- * Razorpay signs the raw request body with HMAC-SHA256 using the webhook
- * secret. The signature is sent in the `X-Razorpay-Signature` header.
- *
- * Uses `timingSafeEqual` to prevent timing-attack-based forgery.
+ * Uses `Razorpay.validateWebhookSignature(body, signature, secret)` from the
+ * official SDK. The SDK performs constant-time comparison internally.
+ * We wrap with try/catch so that malformed input returns false rather than
+ * throwing, preserving the same calling convention as the previous implementation.
  *
  * @returns true  if the signature is valid
- * @returns false if the signature is invalid or an encoding error occurs
+ * @returns false if the signature is invalid or an error occurs
  */
 export function verifyWebhookSignature(
   rawBody: string,
@@ -269,15 +209,8 @@ export function verifyWebhookSignature(
 ): boolean {
   if (!rawBody || !signature || !webhookSecret) return false;
 
-  const expected = createHmac("sha256", webhookSecret)
-    .update(rawBody, "utf8")
-    .digest("hex");
-
   try {
-    return timingSafeEqual(
-      Buffer.from(signature, "hex"),
-      Buffer.from(expected, "hex"),
-    );
+    return Razorpay.validateWebhookSignature(rawBody, signature, webhookSecret);
   } catch {
     return false;
   }

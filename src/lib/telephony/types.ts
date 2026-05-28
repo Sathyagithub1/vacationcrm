@@ -69,6 +69,32 @@ export interface TelephonyProvider {
   ): boolean;
 }
 
+// ── Per-provider credential shapes ───────────────────────────────────────────
+//
+// All providers store credentials in the `Tenant.telephonyApiKey` DB field as
+// an AES-256-GCM encrypted JSON string (via credential-encryption.ts).
+// Use `decryptIfEncrypted(tenant.telephonyApiKey)` then `JSON.parse()` to read.
+//
+// EXOTEL
+//   telephonyApiKey  → encrypted JSON { accountSid: string, apiKey: string, apiToken: string }
+//   telephonyApiSecret → encrypted HMAC webhook secret (X-Exotel-Signature)
+//
+// PLIVO
+//   telephonyApiKey  → Auth ID (plain string — public identifier)
+//   telephonyApiSecret → encrypted Auth Token
+//
+// TWILIO
+//   telephonyApiKey  → Account SID (plain string — public identifier)
+//   telephonyApiSecret → encrypted Auth Token
+//
+// FREJUN
+//   telephonyApiKey  → encrypted JSON
+//     { apiToken: string, callerNumber?: string, webhookSecret: string }
+//     (All three fields in one JSON blob since FreJun has a single credential type)
+//   telephonyApiSecret → set to any non-empty placeholder ("-") to satisfy the
+//     credential-completeness guard; actual secret lives in the apiKey JSON above.
+//
+
 /**
  * Thrown by stub adapter methods that have not yet been wired to the live API.
  * The `trackingNote` is logged so engineers can easily grep for stubs.

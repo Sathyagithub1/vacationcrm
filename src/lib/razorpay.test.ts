@@ -1,7 +1,11 @@
 /**
  * src/lib/razorpay.test.ts
  *
- * Unit tests for the Razorpay client wrapper (Phase 6c).
+ * Unit tests for the Razorpay SDK client wrapper (Phase 6f).
+ *
+ * Phase 6c used a manual https.request client.
+ * Phase 6f uses the official `razorpay` npm SDK.
+ * These tests mock the SDK methods rather than https.request.
  *
  * All tests mock external HTTP calls and prisma — no real Razorpay API calls
  * are made.
@@ -9,12 +13,12 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHmac } from "crypto";
-import { EventEmitter } from "events";
 
-// ── Hoist mock function references so vi.mock factories can close over them ───
-const { mockFindUnique, mockRequest } = vi.hoisted(() => ({
+// ── Hoist mock function references ────────────────────────────────────────────
+const { mockFindUnique, mockOrdersCreate, mockPaymentsRefund } = vi.hoisted(() => ({
   mockFindUnique: vi.fn(),
-  mockRequest: vi.fn(),
+  mockOrdersCreate: vi.fn(),
+  mockPaymentsRefund: vi.fn(),
 }));
 
 // ── Prisma mock ───────────────────────────────────────────────────────────────
@@ -26,10 +30,24 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-// ── https mock ────────────────────────────────────────────────────────────────
-vi.mock("https", () => ({
-  request: mockRequest,
-}));
+// ── Razorpay SDK mock ─────────────────────────────────────────────────────────
+// vi.fn().mockImplementation() doesn't reliably support `new` in some vitest
+// versions — use a real class so `new Razorpay(opts)` returns an instance with
+// the mocked methods attached.
+vi.mock("razorpay", () => {
+  class MockRazorpay {
+    orders = { create: mockOrdersCreate };
+    payments = { refund: mockPaymentsRefund };
+    constructor(_opts: { key_id: string; key_secret: string }) {
+      void _opts;
+    }
+    static validateWebhookSignature(body: string, signature: string, secret: string): boolean {
+      const expected = createHmac("sha256", secret).update(body, "utf8").digest("hex");
+      return expected === signature;
+    }
+  }
+  return { default: MockRazorpay };
+});
 
 // ── Import modules under test (after mocks are declared) ─────────────────────
 import {
@@ -43,30 +61,6 @@ import {
 
 function buildHmac(body: string, secret: string): string {
   return createHmac("sha256", secret).update(body, "utf8").digest("hex");
-}
-
-function mockHttpsResponse(statusCode: number, body: unknown) {
-  mockRequest.mockImplementation(
-    (_opts: unknown, cb: (res: unknown) => void) => {
-      const res = new EventEmitter() as EventEmitter & { statusCode: number };
-      res.statusCode = statusCode;
-
-      process.nextTick(() => {
-        res.emit("data", Buffer.from(JSON.stringify(body)));
-        res.emit("end");
-      });
-
-      cb(res);
-
-      const req = new EventEmitter() as EventEmitter & {
-        write: ReturnType<typeof vi.fn>;
-        end: ReturnType<typeof vi.fn>;
-      };
-      req.write = vi.fn();
-      req.end = vi.fn();
-      return req;
-    },
-  );
 }
 
 function setTenantCreds(
@@ -116,9 +110,9 @@ describe("verifyWebhookSignature", () => {
 describe("createOrder", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns orderId, amount and currency from Razorpay response", async () => {
+  it("returns orderId, amount and currency from SDK response", async () => {
     setTenantCreds("rzp_test_key", "rzp_test_secret");
-    mockHttpsResponse(200, {
+    mockOrdersCreate.mockResolvedValue({
       id: "order_ABC123",
       amount: 50000,
       currency: "INR",
@@ -141,15 +135,40 @@ describe("createOrder", () => {
     });
   });
 
-  it("throws when Razorpay returns a 4xx error", async () => {
+  it("passes correct params to SDK (amount, currency, receipt, notes)", async () => {
     setTenantCreds("rzp_test_key", "rzp_test_secret");
-    mockHttpsResponse(400, {
-      error: { description: "Amount must be a positive integer" },
+    mockOrdersCreate.mockResolvedValue({
+      id: "order_XYZ",
+      amount: 10000,
+      currency: "INR",
+      receipt: "rcpt_tour_1",
+      status: "created",
     });
+
+    await createOrder("tenant-1", {
+      amountPaise: 10000,
+      currency: "INR",
+      receipt: "rcpt_tour_1",
+      notes: { tourId: "tour-99" },
+    });
+
+    expect(mockOrdersCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 10000,
+        currency: "INR",
+        receipt: "rcpt_tour_1",
+        notes: { tourId: "tour-99" },
+      }),
+    );
+  });
+
+  it("throws when Razorpay SDK throws (e.g. invalid amount)", async () => {
+    setTenantCreds("rzp_test_key", "rzp_test_secret");
+    mockOrdersCreate.mockRejectedValue(new Error("Amount must be a positive integer"));
 
     await expect(
       createOrder("tenant-1", { amountPaise: -1 }),
-    ).rejects.toThrow("Razorpay API error 400");
+    ).rejects.toThrow("Amount must be a positive integer");
   });
 
   it("throws when tenant has no Razorpay credentials", async () => {
@@ -166,9 +185,9 @@ describe("createOrder", () => {
 describe("refundPayment", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns refundId and status from Razorpay response", async () => {
+  it("returns refundId and status from SDK response", async () => {
     setTenantCreds("rzp_test_key", "rzp_test_secret");
-    mockHttpsResponse(200, {
+    mockPaymentsRefund.mockResolvedValue({
       id: "rfnd_XYZ789",
       payment_id: "pay_PAY001",
       amount: 50000,
@@ -186,9 +205,9 @@ describe("refundPayment", () => {
     });
   });
 
-  it("passes amount for partial refunds and returns correct amount", async () => {
+  it("passes amount for partial refunds", async () => {
     setTenantCreds("rzp_test_key", "rzp_test_secret");
-    mockHttpsResponse(200, {
+    mockPaymentsRefund.mockResolvedValue({
       id: "rfnd_PARTIAL",
       payment_id: "pay_PAY002",
       amount: 20000,
@@ -199,6 +218,22 @@ describe("refundPayment", () => {
     const result = await refundPayment("tenant-1", "pay_PAY002", 20000);
     expect(result.amount).toBe(20000);
     expect(result.refundId).toBe("rfnd_PARTIAL");
+    expect(mockPaymentsRefund).toHaveBeenCalledWith("pay_PAY002", { amount: 20000 });
+  });
+
+  it("omits amount for full refunds", async () => {
+    setTenantCreds("rzp_test_key", "rzp_test_secret");
+    mockPaymentsRefund.mockResolvedValue({
+      id: "rfnd_FULL",
+      payment_id: "pay_FULL001",
+      amount: 100000,
+      currency: "INR",
+      status: "processed",
+    });
+
+    await refundPayment("tenant-1", "pay_FULL001");
+    // When amountPaise is undefined, body should be empty {}
+    expect(mockPaymentsRefund).toHaveBeenCalledWith("pay_FULL001", {});
   });
 });
 
