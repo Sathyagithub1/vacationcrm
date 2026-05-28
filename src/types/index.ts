@@ -18,6 +18,8 @@ export type Permission =
   | "leads:assign"
   | "leads:bulk"
   | "conversations:view"
+  | "conversations:read"
+  | "conversations:write"
   | "conversations:takeover"
   | "follow-ups:view"
   | "follow-ups:create"

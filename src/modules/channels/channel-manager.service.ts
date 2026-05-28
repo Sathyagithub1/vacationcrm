@@ -70,6 +70,15 @@ export async function handleInboundMessage(
     },
   });
 
+  // ── 3b. Auto-escalation evaluation (6b.4) ─────────────────────────────────
+  // Fire-and-forget — must not block webhook response
+  void evaluateConversationAutoEscalate(conversation.id).catch((err: unknown) => {
+    console.warn(
+      "[ChannelManager] auto-escalation eval error:",
+      err instanceof Error ? err.message : err
+    );
+  });
+
   // ── 4. Route: AI or human? ────────────────────────────────────────────────
   const routeDecision = shouldRouteToAI(inbound.content, conversation.status);
 
@@ -125,6 +134,15 @@ function toMessageType(raw: string): MessageType {
   const valid: MessageType[] = ["TEXT", "IMAGE", "FILE", "AUDIO", "VIDEO", "LOCATION", "TEMPLATE"];
   const upper = raw.toUpperCase() as MessageType;
   return valid.includes(upper) ? upper : "TEXT";
+}
+
+/**
+ * Lazy-import the auto-escalation evaluator to avoid circular deps.
+ * Called fire-and-forget after each inbound message.
+ */
+async function evaluateConversationAutoEscalate(conversationId: string): Promise<void> {
+  const { evaluateConversation } = await import("@/modules/escalation/auto-escalate");
+  await evaluateConversation(conversationId);
 }
 
 /**
