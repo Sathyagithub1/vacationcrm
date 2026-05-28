@@ -1,12 +1,24 @@
 import { PrismaClient } from "@prisma/client";
+import { attachTourSoldMiddleware } from "./prisma-middleware-tour-sold";
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+// We keep the raw PrismaClient in the global for dev hot-reload caching.
+// The extended client (with tour-sold hooks) is what consumers use.
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient;
+  prismaExtended: ReturnType<typeof attachTourSoldMiddleware>;
+};
 
-export const prisma =
-  globalForPrisma.prisma ||
-  new PrismaClient();
+function createExtendedClient() {
+  const base = new PrismaClient();
+  return attachTourSoldMiddleware(base);
+}
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+export const prisma: ReturnType<typeof attachTourSoldMiddleware> =
+  globalForPrisma.prismaExtended || createExtendedClient();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prismaExtended = prisma;
+}
 
 // Tenant-scoped Prisma client
 export function tenantPrisma(tenantId: string) {
@@ -24,6 +36,12 @@ export function tenantPrisma(tenantId: string) {
           "ChannelConfig", "CustomerChannel", "MessageDelivery", "WebhookLog",
           "WidgetConfig", "WidgetVisitor",
           "LeadScore", "Prediction", "ScoringWeight", "ConversionStat",
+          "Tour",
+          // Phase 6a additions (intake, assignment, spam, tags)
+          "IntakeForm", "AssignmentStrategy", "AssignmentPool",
+          "Tag", "SpamRule", "SpamLog",
+          // TourBooking is intentionally excluded — it has no `tenantId` column;
+          // scope is inherited via the Tour relation. Callers must filter via tourId.
         ];
 
         if (!model || !modelsWithTenant.includes(model)) return query(args);

@@ -8,6 +8,7 @@ import { ChatThread } from "@/components/chat/chat-thread";
 import { CustomerInfoPanel } from "@/components/chat/customer-info-panel";
 import type { MessageData } from "@/components/chat/message-bubble";
 import { useSocket, useConversationSocket } from "@/hooks/use-socket";
+import { MarkAsSpamModal } from "@/components/intake/MarkAsSpamModal";
 
 interface ConversationDetail {
   id: string;
@@ -60,6 +61,9 @@ export default function ConversationsPage() {
   const [typingUser, setTypingUser] = React.useState<string | null>(null);
 
   const [cannedResponses, setCannedResponses] = React.useState<CannedResponse[]>([]);
+
+  // Mark-as-Spam modal
+  const [spamModalOpen, setSpamModalOpen] = React.useState(false);
 
   // Polling interval ref (fallback when WS not connected)
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -296,6 +300,7 @@ export default function ConversationsPage() {
           cannedResponses={cannedResponses}
           onSendMessage={handleSendMessage}
           onCloseConversation={handleCloseConversation}
+          onMarkAsSpam={selectedId ? () => setSpamModalOpen(true) : undefined}
           sending={sending}
         />
         {/* Typing indicator */}
@@ -321,6 +326,23 @@ export default function ConversationsPage() {
             Live
           </span>
         </div>
+      )}
+
+      {/* Mark as Spam Modal — requires AGENT+ (all authenticated users have conversations:view) */}
+      {selectedId && (
+        <MarkAsSpamModal
+          conversationId={selectedId}
+          senderChannels={
+            detail?.lead.source ? [detail.lead.source.toLowerCase()] : []
+          }
+          leadDeptId={detail?.lead.department?.id ?? null}
+          open={spamModalOpen}
+          onClose={() => setSpamModalOpen(false)}
+          onMarked={() => {
+            setSpamModalOpen(false);
+            fetchConversations();
+          }}
+        />
       )}
     </div>
   );

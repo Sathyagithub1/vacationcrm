@@ -33,6 +33,12 @@ export async function GET(
       return forbidden();
     }
 
+    // Lead.departmentId is nullable (Phase 6a). Suggestions need a department
+    // to search within — return an empty list when none is set yet.
+    if (!lead.departmentId) {
+      return NextResponse.json({ leadId: id, suggestions: [] });
+    }
+
     const rankedAgents = await findBestAgent(db, user.tenantId, lead.departmentId, {
       source: lead.source,
       priority: lead.priority,

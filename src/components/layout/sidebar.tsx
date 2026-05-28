@@ -45,6 +45,10 @@ const SETTINGS_PERMISSIONS: Permission[] = [
   "settings:channels",
   "settings:widget",
   "settings:analytics",
+  "settings:intake-forms",
+  "settings:assignment",
+  "settings:tours",
+  "settings:spam",
 ];
 
 function canViewItem(

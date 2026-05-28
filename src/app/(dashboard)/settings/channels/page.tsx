@@ -31,6 +31,15 @@ interface ChannelConfig {
   credentialsSet?: boolean;
 }
 
+interface FacebookChannelConfig extends ChannelConfig {
+  config?: {
+    page_id?: string;
+    access_token?: string;
+    subscribedToLeadgen?: boolean;
+    [key: string]: unknown;
+  };
+}
+
 interface ChannelField {
   key: string;
   label: string;
@@ -130,6 +139,7 @@ export default function ChannelsSettingsPage() {
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
+  const [togglingLeadgen, setTogglingLeadgen] = React.useState(false);
   const [configs, setConfigs] = React.useState<Record<string, ChannelConfig>>({});
 
   // Modal state
@@ -275,6 +285,43 @@ export default function ChannelsSettingsPage() {
     }
   }
 
+  async function handleLeadgenToggle(channelId: string) {
+    const existing = configs[channelId];
+    if (!existing?.id) return;
+
+    const fbCfg = existing as FacebookChannelConfig;
+    const isCurrentlySubscribed = fbCfg.config?.subscribedToLeadgen === true;
+    const method = isCurrentlySubscribed ? "DELETE" : "POST";
+
+    setTogglingLeadgen(true);
+    try {
+      const res = await fetch(`/api/channel-configs/${existing.id}/leadgen`, { method });
+      const data = await res.json() as Record<string, unknown>;
+
+      if (!res.ok) {
+        throw new Error((data.error as string) || "Failed to update Lead Ads subscription");
+      }
+
+      setConfigs((prev) => ({
+        ...prev,
+        [channelId]: {
+          ...prev[channelId],
+          config: data.config as Record<string, unknown>,
+        },
+      }));
+      toast(
+        "success",
+        isCurrentlySubscribed
+          ? "Lead Ads notifications disabled"
+          : "Lead Ads notifications enabled",
+      );
+    } catch (err) {
+      toast("error", err instanceof Error ? err.message : "Failed to toggle Lead Ads");
+    } finally {
+      setTogglingLeadgen(false);
+    }
+  }
+
   function copyWebhookUrl(path: string) {
     const url = `${window.location.origin}${path}`;
     navigator.clipboard.writeText(url).then(() => {
@@ -356,6 +403,34 @@ export default function ChannelsSettingsPage() {
                   </button>
                 )}
               </div>
+
+              {/* Lead Ads toggle — Facebook only */}
+              {channel.id === "facebook" && cfg?.id && (
+                <div className="mt-3 flex items-center justify-between rounded-md bg-blue-50 px-3 py-2">
+                  <span className="text-xs font-medium text-blue-800">Lead Ads notifications</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={(cfg as FacebookChannelConfig).config?.subscribedToLeadgen === true}
+                    aria-label="Toggle Lead Ads notifications"
+                    disabled={togglingLeadgen}
+                    onClick={() => handleLeadgenToggle(channel.id)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors disabled:opacity-50 ${
+                      (cfg as FacebookChannelConfig).config?.subscribedToLeadgen === true
+                        ? "bg-blue-600"
+                        : "bg-gray-300"
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow ring-0 transition-transform ${
+                        (cfg as FacebookChannelConfig).config?.subscribedToLeadgen === true
+                          ? "translate-x-4"
+                          : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}

@@ -23,6 +23,13 @@ enum LeadSource {
   FB
   IG
   MANUAL
+  META_LEAD_AD
+  GOOGLE_FORMS
+  WEBSITE_SNIPPET
+  FORM_BUILDER
+  EMAIL
+  MESSENGER
+  TELEGRAM
 }
 
 enum LeadPriority {
@@ -39,6 +46,8 @@ enum LeadActivityType {
   CALL
   EMAIL
   SYSTEM
+  REPEAT_INQUIRY
+  ASSIGNED
 }
 
 enum FollowUpType {
@@ -107,6 +116,9 @@ enum NotificationType {
   ESCALATION
   CALLBACK
   NEW_MESSAGE
+  ASSIGNMENT_FALLBACK
+  INTAKE_FORM_PENDING_REVIEW
+  INTAKE_FORM_KEY_DIFF
 }
 
 enum EscalationReason {
@@ -260,6 +272,53 @@ enum WeightCategory {
   CONVERSATION
 }
 
+// ─── Phase 6a: Intake & Routing Enums ─────────────────────────────────────────
+
+enum IntakeFormStatus {
+  PENDING_REVIEW
+  ACTIVE
+  PAUSED
+}
+
+enum AssignmentStrategyType {
+  ROUND_ROBIN
+  LOAD_BALANCED
+  SKILL_BASED
+  AI_TIERED
+  NAMED_POOLS
+}
+
+enum TagScope {
+  CUSTOMER
+  LEAD
+  BOTH
+}
+
+enum TourStatus {
+  DRAFT
+  ACTIVE
+  SOLD_OUT
+  CANCELLED
+  COMPLETED
+}
+
+enum TourBookingStatus {
+  CONFIRMED
+  CANCELLED
+  WAITLISTED
+}
+
+enum SpamRuleType {
+  BLACKLIST
+  RATE_LIMIT
+  PATTERN
+  AI
+}
+
+enum SpamAction {
+  BLOCKED
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -279,6 +338,9 @@ model Tenant {
   currency             String             @default("INR") @map("currency")
   address              String?            @map("address")
   subscriptionStatus   SubscriptionStatus @default(ACTIVE) @map("subscription_status")
+  intakeToken          String             @unique @default(cuid()) @map("intake_token")
+  googleFormsKey       String?            @unique @map("google_forms_key")
+  featureFlags         Json               @default("{}") @map("feature_flags")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
 
@@ -315,6 +377,13 @@ model Tenant {
   predictions        Prediction[]
   scoringWeights     ScoringWeight[]
   conversionStats    ConversionStat[]
+  intakeForms        IntakeForm[]
+  assignmentStrategy AssignmentStrategy?
+  assignmentPools    AssignmentPool[]
+  tags               Tag[]
+  tours              Tour[]
+  spamRules          SpamRule[]
+  spamLogs           SpamLog[]
 
   @@map("tenants")
 }
@@ -332,18 +401,22 @@ model User {
   notificationPreferences Json?     @map("notification_preferences")
   isActive                Boolean   @default(true) @map("is_active")
   lastSeenAt              DateTime? @map("last_seen_at")
+  languages               String[]  @default([])
+  tags                    String[]  @default([])
+  assignmentTier          Int?      @map("assignment_tier")
+  onLeaveUntil            DateTime? @map("on_leave_until")
   createdAt               DateTime  @default(now()) @map("created_at")
 
-  tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  department          Department?         @relation(fields: [departmentId], references: [id])
-  assignedLeads       Lead[]              @relation("LeadAssignee")
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department          Department?          @relation(fields: [departmentId], references: [id])
+  assignedLeads       Lead[]               @relation("LeadAssignee")
   activities          LeadActivity[]
   followUps           FollowUp[]
   callbacks           Callback[]
   conversations       Conversation[]
   notifications       Notification[]
-  escalationsFrom     Escalation[]        @relation("EscalationFrom")
-  escalationsTo       Escalation[]        @relation("EscalationTo")
+  escalationsFrom     Escalation[]         @relation("EscalationFrom")
+  escalationsTo       Escalation[]         @relation("EscalationTo")
   broadcasts          Broadcast[]
   cannedResponses     CannedResponse[]
   fileUploads         FileUpload[]
@@ -351,6 +424,7 @@ model User {
   auditLogs           AuditLog[]
   passwordResetTokens PasswordResetToken[]
   dashboardWidgets    DashboardWidget[]
+  spamRulesCreated    SpamRule[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -407,7 +481,7 @@ model Department {
   isActive            Boolean  @default(true) @map("is_active")
   createdAt           DateTime @default(now()) @map("created_at")
 
-  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   users           User[]
   pipelineStages  PipelineStage[]
   leads           Lead[]
@@ -417,6 +491,9 @@ model Department {
   cannedResponses CannedResponse[]
   knowledgeBases  KnowledgeBase[]
   widgetConfigs   WidgetConfig[]
+  intakeForms     IntakeForm[]
+  assignmentPools AssignmentPool[]
+  tours           Tour[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -464,6 +541,7 @@ model Customer {
   channels            CustomerChannel[]
   conversations       Conversation[]       @relation("ConversationCustomer")
   widgetVisitors      WidgetVisitor[]
+  tourBookings        TourBooking[]
 
   @@unique([tenantId, mobile])
   @@index([tenantId])
@@ -471,27 +549,33 @@ model Customer {
 }
 
 model Lead {
-  id                 String       @id @default(uuid()) @map("id")
-  tenantId           String       @map("tenant_id")
-  departmentId       String       @map("department_id")
-  customerId         String       @map("customer_id")
-  destination        String?      @map("destination")
-  travelDate         DateTime?    @map("travel_date")
-  numPassengers      Int?         @map("num_passengers")
-  specialRequirement String?      @map("special_requirement")
-  source             LeadSource   @default(MANUAL) @map("source")
-  stageId            String       @map("stage_id")
-  assignedTo         String?      @map("assigned_to")
-  priority           LeadPriority @default(MEDIUM) @map("priority")
-  isFutureInterest   Boolean      @default(false) @map("is_future_interest")
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
+  id                  String       @id @default(uuid()) @map("id")
+  tenantId            String       @map("tenant_id")
+  departmentId        String?      @map("department_id")
+  customerId          String       @map("customer_id")
+  destination         String?      @map("destination")
+  travelDate          DateTime?    @map("travel_date")
+  numPassengers       Int?         @map("num_passengers")
+  specialRequirement  String?      @map("special_requirement")
+  source              LeadSource   @default(MANUAL) @map("source")
+  stageId             String       @map("stage_id")
+  assignedTo          String?      @map("assigned_to")
+  priority            LeadPriority @default(MEDIUM) @map("priority")
+  isFutureInterest    Boolean      @default(false) @map("is_future_interest")
+  language            String?
+  tourId              String?      @map("tour_id")
+  intakeFormId        String?      @map("intake_form_id")
+  needsFieldMapReview Boolean      @default(false) @map("needs_field_map_review")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
 
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  department    Department     @relation(fields: [departmentId], references: [id])
+  department    Department?    @relation(fields: [departmentId], references: [id])
   customer      Customer       @relation(fields: [customerId], references: [id])
   stage         PipelineStage  @relation(fields: [stageId], references: [id])
   assignee      User?          @relation("LeadAssignee", fields: [assignedTo], references: [id])
+  tour          Tour?          @relation(fields: [tourId], references: [id])
+  intakeForm    IntakeForm?    @relation(fields: [intakeFormId], references: [id])
   activities    LeadActivity[]
   followUps     FollowUp[]
   callbacks     Callback[]
@@ -500,6 +584,7 @@ model Lead {
   fileUploads   FileUpload[]
   score         LeadScore?
   predictions   Prediction[]
+  tourBookings  TourBooking[]
 
   @@index([tenantId])
   @@index([tenantId, departmentId])
@@ -982,19 +1067,19 @@ model WidgetConfig {
 }
 
 model WidgetVisitor {
-  id            String    @id @default(uuid()) @map("id")
-  tenantId      String    @map("tenant_id")
-  visitorId     String    @map("visitor_id")
-  customerId    String?   @map("customer_id")
-  firstPageUrl  String?   @map("first_page_url")
-  referrerUrl   String?   @map("referrer_url")
-  userAgent     String?   @map("user_agent")
-  ipCountry     String?   @map("ip_country")
-  ipCity        String?   @map("ip_city")
-  totalVisits   Int       @default(1) @map("total_visits")
-  totalMessages Int       @default(0) @map("total_messages")
-  firstSeenAt   DateTime  @default(now()) @map("first_seen_at")
-  lastSeenAt    DateTime  @default(now()) @map("last_seen_at")
+  id            String   @id @default(uuid()) @map("id")
+  tenantId      String   @map("tenant_id")
+  visitorId     String   @map("visitor_id")
+  customerId    String?  @map("customer_id")
+  firstPageUrl  String?  @map("first_page_url")
+  referrerUrl   String?  @map("referrer_url")
+  userAgent     String?  @map("user_agent")
+  ipCountry     String?  @map("ip_country")
+  ipCity        String?  @map("ip_city")
+  totalVisits   Int      @default(1) @map("total_visits")
+  totalMessages Int      @default(0) @map("total_messages")
+  firstSeenAt   DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt    DateTime @default(now()) @map("last_seen_at")
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer Customer? @relation(fields: [customerId], references: [id])
@@ -1086,4 +1171,181 @@ model ConversionStat {
 
   @@index([tenantId, dimension])
   @@map("conversion_stats")
+}
+
+// ─── Phase 6a: Intake & Routing Models ────────────────────────────────────────
+
+model IntakeForm {
+  id                    String           @id @default(uuid())
+  tenantId              String           @map("tenant_id")
+  source                LeadSource
+  externalId            String           @map("external_id")
+  name                  String
+  departmentId          String?          @map("department_id")
+  defaultTagIds         String[]         @default([]) @map("default_tag_ids")
+  fieldMap              Json
+  fieldMappingConfirmed Boolean          @default(false) @map("field_mapping_confirmed")
+  status                IntakeFormStatus @default(PENDING_REVIEW)
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id])
+  leads      Lead[]
+
+  @@unique([tenantId, source, externalId])
+  @@index([tenantId, status])
+  @@map("intake_forms")
+}
+
+model IntakeWebhookLog {
+  id             String      @id @default(uuid())
+  tenantId       String?     @map("tenant_id")
+  source         LeadSource?
+  endpoint       String
+  rawPayload     Json        @map("raw_payload")
+  signatureValid Boolean     @map("signature_valid")
+  processed      Boolean     @default(false)
+  errorMessage   String?     @map("error_message")
+  leadId         String?     @map("lead_id")
+  receivedAt     DateTime    @default(now()) @map("received_at")
+
+  @@index([tenantId, receivedAt])
+  @@map("intake_webhook_logs")
+}
+
+model AssignmentStrategy {
+  id        String                 @id @default(uuid())
+  tenantId  String                 @unique @map("tenant_id")
+  type      AssignmentStrategyType
+  config    Json                   @default("{}")
+  updatedAt DateTime               @updatedAt @map("updated_at")
+  tenant    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("assignment_strategies")
+}
+
+model AssignmentPool {
+  id           String      @id @default(uuid())
+  tenantId     String      @map("tenant_id")
+  name         String
+  agentIds     String[]    @map("agent_ids")
+  sourceMatch  Json        @default("[]") @map("source_match")
+  departmentId String?     @map("department_id")
+  priority     Int         @default(0)
+  isActive     Boolean     @default(true) @map("is_active")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  @@index([tenantId, isActive, priority])
+  @@map("assignment_pools")
+}
+
+model AssignmentCursor {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  scope       String
+  lastAgentId String?  @map("last_agent_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, scope])
+  @@map("assignment_cursors")
+}
+
+model Tag {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  color     String?
+  scope     TagScope
+  createdAt DateTime @default(now()) @map("created_at")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name, scope])
+  @@map("tags")
+}
+
+model Tour {
+  id           String     @id @default(uuid())
+  tenantId     String     @map("tenant_id")
+  code         String
+  name         String
+  description  String?
+  departmentId String     @map("department_id")
+  startDate    DateTime   @map("start_date")
+  endDate      DateTime   @map("end_date")
+  capacity     Int
+  sold         Int        @default(0)
+  status       TourStatus @default(ACTIVE)
+  tagIds       String[]   @default([]) @map("tag_ids")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department    @relation(fields: [departmentId], references: [id])
+  bookings   TourBooking[]
+  leads      Lead[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@map("tours")
+}
+
+model TourBooking {
+  id         String            @id @default(uuid())
+  tourId     String            @map("tour_id")
+  leadId     String?           @map("lead_id")
+  customerId String            @map("customer_id")
+  seats      Int               @default(1)
+  status     TourBookingStatus @default(CONFIRMED)
+  bookedAt   DateTime          @default(now()) @map("booked_at")
+
+  tour     Tour     @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  lead     Lead?    @relation(fields: [leadId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([tourId, status])
+  @@map("tour_bookings")
+}
+
+model SpamRule {
+  id            String       @id @default(uuid())
+  tenantId      String       @map("tenant_id")
+  type          SpamRuleType
+  channels      String[]     @default([])
+  departmentIds String[]     @default([]) @map("department_ids")
+  identifier    String
+  reason        String?
+  threshold     Int?
+  windowSeconds Int?         @map("window_seconds")
+  blockSeconds  Int?         @map("block_seconds")
+  aiThreshold   Float?       @map("ai_threshold")
+  createdById   String?      @map("created_by_id")
+  expiresAt     DateTime?    @map("expires_at")
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId, isActive])
+  @@index([tenantId, type, identifier])
+  @@map("spam_rules")
+}
+
+model SpamLog {
+  id               String     @id @default(uuid())
+  tenantId         String     @map("tenant_id")
+  channel          String
+  senderIdentifier String     @map("sender_identifier")
+  rawPayload       Json       @map("raw_payload")
+  matchedRuleId    String?    @map("matched_rule_id")
+  action           SpamAction
+  occurredAt       DateTime   @default(now()) @map("occurred_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, occurredAt])
+  @@map("spam_logs")
 }

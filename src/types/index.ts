@@ -39,6 +39,10 @@ export type Permission =
   | "settings:channels"
   | "settings:widget"
   | "settings:analytics"
+  | "settings:intake-forms"
+  | "settings:assignment"
+  | "settings:tours"
+  | "settings:spam"
   | "ai:metrics"
   | "predictions:view"
   | "predictions:accept";

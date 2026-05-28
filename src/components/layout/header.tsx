@@ -342,7 +342,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                         <div className="min-w-0 flex-1">
                           <p className="truncate font-medium text-gray-900">{l.customer.name}</p>
                           <p className="truncate text-xs text-gray-500">
-                            {l.department.name} | {l.stage.name}
+                            {l.department?.name ?? "Unassigned"} | {l.stage.name}
                           </p>
                         </div>
                       </button>

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, MessageSquare } from "lucide-react";
+import { X, MessageSquare, ShieldOff } from "lucide-react";
 import { MessageBubble, HumanTakeoverDivider, type MessageData } from "./message-bubble";
 import { ChatInput } from "./chat-input";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,8 @@ interface ChatThreadProps {
   cannedResponses: CannedResponse[];
   onSendMessage: (content: string) => void;
   onCloseConversation: () => void;
+  /** Optional: called when the "Mark as Spam" button is clicked. RBAC: AGENT+ */
+  onMarkAsSpam?: () => void;
   sending: boolean;
 }
 
@@ -35,6 +37,7 @@ export function ChatThread({
   cannedResponses,
   onSendMessage,
   onCloseConversation,
+  onMarkAsSpam,
   sending,
 }: ChatThreadProps) {
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
@@ -64,12 +67,26 @@ export function ChatThread({
             {isClosed ? "Closed" : "Active conversation"}
           </p>
         </div>
-        {!isClosed && (
-          <Button variant="secondary" size="sm" onClick={onCloseConversation}>
-            <X className="h-3.5 w-3.5" />
-            Close
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {onMarkAsSpam && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onMarkAsSpam}
+              title="Mark conversation as spam"
+              className="text-red-500 hover:bg-red-50 hover:text-red-700"
+            >
+              <ShieldOff className="h-3.5 w-3.5" />
+              Spam
+            </Button>
+          )}
+          {!isClosed && (
+            <Button variant="secondary" size="sm" onClick={onCloseConversation}>
+              <X className="h-3.5 w-3.5" />
+              Close
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}

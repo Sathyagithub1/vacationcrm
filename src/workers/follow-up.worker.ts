@@ -41,7 +41,7 @@ async function processDueFollowUps() {
         userId: followUp.assignedTo,
         type: "FOLLOW_UP_DUE",
         title: `Follow-up due: ${followUp.type}`,
-        body: `Follow-up for ${followUp.lead.customer.name} (${followUp.lead.department.name}) is now due.`,
+        body: `Follow-up for ${followUp.lead.customer.name} (${followUp.lead.department?.name ?? "unassigned"}) is now due.`,
         data: {
           followUpId: followUp.id,
           leadId: followUp.leadId,

@@ -13,8 +13,14 @@ import type {
   ChatChunk,
   ChatMessage,
   ChatParams,
+  SpamClassification,
   ToolDefinition,
 } from "./provider.interface";
+import {
+  parseFirstJsonObject,
+  parseSpamClassification,
+  SPAM_CLASSIFY_PROMPT,
+} from "./classify-prompt";
 
 export class GeminiAdapter implements AIProvider {
   readonly id = "GEMINI";
@@ -176,5 +182,30 @@ export class GeminiAdapter implements AIProvider {
     });
     const result = await embeddingModel.embedContent(text);
     return result.embedding.values;
+  }
+
+  async classify(text: string): Promise<SpamClassification> {
+    const model = this.client.getGenerativeModel({
+      model: this.model,
+      systemInstruction: SPAM_CLASSIFY_PROMPT,
+      generationConfig: { maxOutputTokens: 100, temperature: 0 },
+    });
+    const result = await model.generateContent(text);
+    const raw = result.response.text();
+    return parseSpamClassification(raw);
+  }
+
+  async complete(prompt: string): Promise<string> {
+    const model = this.client.getGenerativeModel({
+      model: this.model,
+      generationConfig: { maxOutputTokens: 1024, temperature: 0 },
+    });
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  }
+
+  async completeJson(prompt: string): Promise<unknown> {
+    const raw = await this.complete(prompt);
+    return parseFirstJsonObject(raw);
   }
 }

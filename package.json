@@ -10,7 +10,8 @@
     "seed": "tsx scripts/seed.ts",
     "db:reset": "npx prisma migrate reset && npm run seed",
     "workers": "tsx src/workers/index.ts",
-    "ws": "tsx src/ws-server/index.ts"
+    "ws": "tsx src/ws-server/index.ts",
+    "smoke": "vitest run src/tests/smoke"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
