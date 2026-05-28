@@ -11,7 +11,10 @@
     "db:reset": "npx prisma migrate reset && npm run seed",
     "workers": "tsx src/workers/index.ts",
     "ws": "tsx src/ws-server/index.ts",
-    "smoke": "vitest run src/tests/smoke"
+    "smoke": "vitest run src/tests/smoke",
+    "test": "vitest run",
+    "test:ui": "vitest run --config vitest.ui.config.ts",
+    "test:all": "vitest run && vitest run --config vitest.ui.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
