@@ -3,9 +3,21 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, requirePermission, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { buildThemeConfig } from "@/modules/white-label/theme.service";
 import { logAudit } from "@/modules/audit/audit.service";
+import { encryptCredential } from "@/lib/crypto/credential-encryption";
+
+const MASK = "••••••••";
+const MASK_PATTERN = /^[•]+$/;
+
+/** True iff the caller sent a real new value (non-empty, not the masked sentinel). */
+function isDirtySecret(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0 && !MASK_PATTERN.test(v);
+}
 
 /**
  * GET /api/tenants — Get current tenant info (for use-tenant hook and settings pages).
+ *
+ * Secret fields are masked: clients receive "••••••••" instead of the stored
+ * (encrypted) value, so the wire never carries reversible material.
  */
 export async function GET() {
   try {
@@ -30,6 +42,19 @@ export async function GET() {
         address: true,
         subscriptionStatus: true,
         createdAt: true,
+        // Phase 6c — Razorpay
+        razorpayKeyId: true,
+        razorpayKeySecret: true,
+        razorpayWebhookSecret: true,
+        // Phase 6d — Telephony + STT + TTS
+        telephonyProvider: true,
+        telephonyApiKey: true,
+        telephonyApiSecret: true,
+        telephonyPhoneNumber: true,
+        sttProvider: true,
+        sttApiKey: true,
+        ttsProvider: true,
+        ttsApiKey: true,
       },
     });
 
@@ -37,14 +62,23 @@ export async function GET() {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Mask sensitive credentials before returning
+    // Mask sensitive credentials in emailTemplateConfig JSON
     const emailConfig = tenant.emailTemplateConfig as Record<string, unknown> | null;
     if (emailConfig) {
-      if (emailConfig.smtpPass) emailConfig.smtpPass = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
-      if (emailConfig.smsApiKey) emailConfig.smsApiKey = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
-      if (emailConfig.whatsappApiKey) emailConfig.whatsappApiKey = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+      if (emailConfig.smtpPass) emailConfig.smtpPass = MASK;
+      if (emailConfig.smsApiKey) emailConfig.smsApiKey = MASK;
+      if (emailConfig.whatsappApiKey) emailConfig.whatsappApiKey = MASK;
       (tenant as Record<string, unknown>).emailTemplateConfig = emailConfig;
     }
+
+    // Mask Phase 6c-6d secret fields — never return the (encrypted) value
+    const t = tenant as Record<string, unknown>;
+    if (t.razorpayKeySecret) t.razorpayKeySecret = MASK;
+    if (t.razorpayWebhookSecret) t.razorpayWebhookSecret = MASK;
+    if (t.telephonyApiKey) t.telephonyApiKey = MASK;
+    if (t.telephonyApiSecret) t.telephonyApiSecret = MASK;
+    if (t.sttApiKey) t.sttApiKey = MASK;
+    if (t.ttsApiKey) t.ttsApiKey = MASK;
 
     return NextResponse.json({ tenant });
   } catch (error) {
@@ -57,6 +91,10 @@ export async function GET() {
 
 /**
  * PUT /api/tenants — Update tenant settings (general, branding, integrations).
+ *
+ * Secret fields (passwords, API keys) are encrypted at rest via AES-256-GCM
+ * (see src/lib/crypto/credential-encryption.ts). The wire format sentinel "••••••••"
+ * is treated as "no change" — clients must send the real new value to update.
  */
 export async function PUT(request: Request) {
   try {
@@ -74,7 +112,7 @@ export async function PUT(request: Request) {
       primaryColor,
       secondaryColor,
       presetName,
-      // Integrations (stored in emailTemplateConfig as a JSON blob)
+      // Integrations (stored in emailTemplateConfig JSON blob)
       smtpHost,
       smtpPort,
       smtpUser,
@@ -84,6 +122,19 @@ export async function PUT(request: Request) {
       smsApiUrl,
       whatsappApiKey,
       whatsappApiUrl,
+      // Phase 6c — Razorpay
+      razorpayKeyId,
+      razorpayKeySecret,
+      razorpayWebhookSecret,
+      // Phase 6d — Telephony + STT + TTS
+      telephonyProvider,
+      telephonyApiKey,
+      telephonyApiSecret,
+      telephonyPhoneNumber,
+      sttProvider,
+      sttApiKey,
+      ttsProvider,
+      ttsApiKey,
     } = body;
 
     const updateData: Record<string, unknown> = {};
@@ -96,18 +147,14 @@ export async function PUT(request: Request) {
 
     // Branding fields
     if (productName !== undefined) updateData.productName = productName.trim();
-
-    // Theme — regenerate palette from colors
     if (primaryColor && secondaryColor) {
       updateData.themeConfig = buildThemeConfig(primaryColor, secondaryColor, presetName);
     }
 
     // Integrations — store as emailTemplateConfig JSON
-    // Only update when at least one integration field is present in the request
     if (smtpHost !== undefined || smtpPort !== undefined || smtpUser !== undefined ||
         smtpPass !== undefined || smtpFrom !== undefined || smsApiKey !== undefined ||
         smsApiUrl !== undefined || whatsappApiKey !== undefined || whatsappApiUrl !== undefined) {
-      // Fetch existing config to merge
       const existing = await prisma.tenant.findUnique({
         where: { id: user.tenantId },
         select: { emailTemplateConfig: true },
@@ -115,11 +162,8 @@ export async function PUT(request: Request) {
 
       const existingConfig = (existing?.emailTemplateConfig as Record<string, unknown>) || {};
 
-      const integrations: Record<string, unknown> = {
-        ...existingConfig,
-      };
+      const integrations: Record<string, unknown> = { ...existingConfig };
 
-      // For non-secret fields, always update if provided
       if (smtpHost !== undefined) integrations.smtpHost = smtpHost;
       if (smtpPort !== undefined) integrations.smtpPort = smtpPort;
       if (smtpUser !== undefined) integrations.smtpUser = smtpUser;
@@ -127,22 +171,57 @@ export async function PUT(request: Request) {
       if (smsApiUrl !== undefined) integrations.smsApiUrl = smsApiUrl;
       if (whatsappApiUrl !== undefined) integrations.whatsappApiUrl = whatsappApiUrl;
 
-      // For secret fields, only update if provided AND not masked (preserve existing otherwise)
-      const MASK_PATTERN = /^[•]+$/;
-      if (smtpPass !== undefined && typeof smtpPass === "string" &&
-          smtpPass.length > 0 && !MASK_PATTERN.test(smtpPass)) {
-        integrations.smtpPass = smtpPass;
-      }
-      if (smsApiKey !== undefined && typeof smsApiKey === "string" &&
-          smsApiKey.length > 0 && !MASK_PATTERN.test(smsApiKey)) {
-        integrations.smsApiKey = smsApiKey;
-      }
-      if (whatsappApiKey !== undefined && typeof whatsappApiKey === "string" &&
-          whatsappApiKey.length > 0 && !MASK_PATTERN.test(whatsappApiKey)) {
-        integrations.whatsappApiKey = whatsappApiKey;
-      }
+      if (isDirtySecret(smtpPass)) integrations.smtpPass = smtpPass;
+      if (isDirtySecret(smsApiKey)) integrations.smsApiKey = smsApiKey;
+      if (isDirtySecret(whatsappApiKey)) integrations.whatsappApiKey = whatsappApiKey;
 
       updateData.emailTemplateConfig = integrations;
+    }
+
+    // Phase 6c — Razorpay
+    // Non-secret: razorpayKeyId stored plain (it's a public identifier)
+    if (razorpayKeyId !== undefined) {
+      updateData.razorpayKeyId = razorpayKeyId?.trim() || null;
+    }
+    // Secrets: encrypt-on-write
+    if (isDirtySecret(razorpayKeySecret)) {
+      updateData.razorpayKeySecret = encryptCredential(razorpayKeySecret);
+    }
+    if (isDirtySecret(razorpayWebhookSecret)) {
+      updateData.razorpayWebhookSecret = encryptCredential(razorpayWebhookSecret);
+    }
+
+    // Phase 6d — Telephony
+    if (telephonyProvider !== undefined) {
+      const val = typeof telephonyProvider === "string" ? telephonyProvider.trim().toUpperCase() : "";
+      updateData.telephonyProvider = val || null;
+    }
+    if (telephonyPhoneNumber !== undefined) {
+      updateData.telephonyPhoneNumber = telephonyPhoneNumber?.trim() || null;
+    }
+    if (isDirtySecret(telephonyApiKey)) {
+      updateData.telephonyApiKey = encryptCredential(telephonyApiKey);
+    }
+    if (isDirtySecret(telephonyApiSecret)) {
+      updateData.telephonyApiSecret = encryptCredential(telephonyApiSecret);
+    }
+
+    // Phase 6d — STT
+    if (sttProvider !== undefined) {
+      const val = typeof sttProvider === "string" ? sttProvider.trim().toUpperCase() : "";
+      updateData.sttProvider = val || null;
+    }
+    if (isDirtySecret(sttApiKey)) {
+      updateData.sttApiKey = encryptCredential(sttApiKey);
+    }
+
+    // Phase 6d — TTS
+    if (ttsProvider !== undefined) {
+      const val = typeof ttsProvider === "string" ? ttsProvider.trim().toUpperCase() : "";
+      updateData.ttsProvider = val || null;
+    }
+    if (isDirtySecret(ttsApiKey)) {
+      updateData.ttsApiKey = encryptCredential(ttsApiKey);
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -154,13 +233,25 @@ export async function PUT(request: Request) {
       data: updateData,
     });
 
+    // Audit log — record which fields changed, but never log secret values
+    const auditFields = Object.keys(updateData).reduce<Record<string, unknown>>((acc, k) => {
+      const secretKeys = [
+        "razorpayKeySecret", "razorpayWebhookSecret",
+        "telephonyApiKey", "telephonyApiSecret",
+        "sttApiKey", "ttsApiKey",
+        "emailTemplateConfig",
+      ];
+      acc[k] = secretKeys.includes(k) ? "<redacted>" : updateData[k];
+      return acc;
+    }, {});
+
     await logAudit({
       tenantId: user.tenantId,
       userId: user.id,
       action: "tenant.update",
       entityType: "Tenant",
       entityId: tenant.id,
-      newValue: updateData,
+      newValue: auditFields,
     });
 
     return NextResponse.json({ tenant });

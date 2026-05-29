@@ -1,0 +1,58 @@
+# Secrets — MUST NOT be baked into images
+.env
+.env.*
+!.env.example
+
+# Dependencies / build output (built inside container)
+node_modules
+.next
+.turbo
+out
+dist
+build
+
+# Local dev caches
+.cache
+.parcel-cache
+coverage
+.nyc_output
+
+# Git history (not needed at runtime)
+.git
+.gitignore
+.gitattributes
+
+# Editor / OS junk
+.vscode
+.idea
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Tests + dev-only artifacts (not needed in standalone runtime)
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+**/__tests__
+**/__mocks__
+src/test
+src/tests
+vitest.config.ts
+vitest.ui.config.ts
+
+# Docs
+docs
+README.md
+*.md
+!CHANGELOG.md
+
+# CI
+.github
+.gitlab-ci.yml

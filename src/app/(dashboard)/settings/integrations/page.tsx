@@ -5,64 +5,143 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { Spinner } from "@/components/ui/loading";
-import { Mail, MessageSquare, Phone, Eye, EyeOff } from "lucide-react";
+import {
+  Mail,
+  MessageSquare,
+  Phone,
+  Eye,
+  EyeOff,
+  CreditCard,
+  PhoneCall,
+  Mic,
+  Volume2,
+} from "lucide-react";
 
-// Sentinel value returned by the API for masked secrets
+// Sentinel returned by the API when a secret is set but masked
 const MASKED_SENTINEL = "••••••••";
 
 function isMasked(val: string): boolean {
   return val === MASKED_SENTINEL || /^[•]+$/.test(val);
 }
 
+type TelephonyProvider = "" | "EXOTEL" | "FREJUN";
+type GoogleProvider = "" | "GOOGLE";
+
+// Derive the public-facing app URL once — used to display copy-pasteable
+// webhook URLs to the operator. Falls back to a placeholder if unset so the
+// hint still reads coherently.
+const APP_URL =
+  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_APP_URL) ||
+  "https://your-app-domain";
+
 export default function IntegrationsSettingsPage() {
   const { toast } = useToast();
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
 
-  // SMTP
+  // ── SMTP ────────────────────────────────────────────────────────────────────
   const [smtpHost, setSmtpHost] = React.useState("");
   const [smtpPort, setSmtpPort] = React.useState("");
   const [smtpUser, setSmtpUser] = React.useState("");
   const [smtpPass, setSmtpPass] = React.useState("");
   const [smtpFrom, setSmtpFrom] = React.useState("");
   const [showSmtpPass, setShowSmtpPass] = React.useState(false);
-  // Track which secret fields have been dirtied by the user
   const [smtpPassDirty, setSmtpPassDirty] = React.useState(false);
 
-  // SMS
+  // ── SMS ─────────────────────────────────────────────────────────────────────
   const [smsApiKey, setSmsApiKey] = React.useState("");
   const [smsApiUrl, setSmsApiUrl] = React.useState("");
   const [showSmsKey, setShowSmsKey] = React.useState(false);
   const [smsApiKeyDirty, setSmsApiKeyDirty] = React.useState(false);
 
-  // WhatsApp
+  // ── WhatsApp ────────────────────────────────────────────────────────────────
   const [whatsappApiKey, setWhatsappApiKey] = React.useState("");
   const [whatsappApiUrl, setWhatsappApiUrl] = React.useState("");
   const [showWhatsappKey, setShowWhatsappKey] = React.useState(false);
   const [whatsappApiKeyDirty, setWhatsappApiKeyDirty] = React.useState(false);
 
-  // Fetch existing config
+  // ── Razorpay (Phase 6c) ─────────────────────────────────────────────────────
+  const [razorpayKeyId, setRazorpayKeyId] = React.useState("");
+  const [razorpayKeySecret, setRazorpayKeySecret] = React.useState("");
+  const [razorpayWebhookSecret, setRazorpayWebhookSecret] = React.useState("");
+  const [showRazorpayKeySecret, setShowRazorpayKeySecret] = React.useState(false);
+  const [showRazorpayWebhookSecret, setShowRazorpayWebhookSecret] = React.useState(false);
+  const [razorpayKeySecretDirty, setRazorpayKeySecretDirty] = React.useState(false);
+  const [razorpayWebhookSecretDirty, setRazorpayWebhookSecretDirty] = React.useState(false);
+
+  // ── Telephony (Phase 6d) ────────────────────────────────────────────────────
+  const [telephonyProvider, setTelephonyProvider] = React.useState<TelephonyProvider>("");
+  const [telephonyPhoneNumber, setTelephonyPhoneNumber] = React.useState("");
+  const [telephonyConfigured, setTelephonyConfigured] = React.useState(false);
+  const [exotelAccountSid, setExotelAccountSid] = React.useState("");
+  const [exotelApiKey, setExotelApiKey] = React.useState("");
+  const [exotelApiToken, setExotelApiToken] = React.useState("");
+  const [frejunApiKey, setFrejunApiKey] = React.useState("");
+  const [showExotelApiKey, setShowExotelApiKey] = React.useState(false);
+  const [showExotelApiToken, setShowExotelApiToken] = React.useState(false);
+  const [showFrejunApiKey, setShowFrejunApiKey] = React.useState(false);
+  const [telephonyCredsDirty, setTelephonyCredsDirty] = React.useState(false);
+
+  // ── STT (Phase 6d) ──────────────────────────────────────────────────────────
+  const [sttProvider, setSttProvider] = React.useState<GoogleProvider>("");
+  const [sttApiKey, setSttApiKey] = React.useState("");
+  const [showSttApiKey, setShowSttApiKey] = React.useState(false);
+  const [sttApiKeyDirty, setSttApiKeyDirty] = React.useState(false);
+
+  // ── TTS (Phase 6d) ──────────────────────────────────────────────────────────
+  const [ttsProvider, setTtsProvider] = React.useState<GoogleProvider>("");
+  const [ttsApiKey, setTtsApiKey] = React.useState("");
+  const [showTtsApiKey, setShowTtsApiKey] = React.useState(false);
+  const [ttsApiKeyDirty, setTtsApiKeyDirty] = React.useState(false);
+
+  // ── Initial load ────────────────────────────────────────────────────────────
   React.useEffect(() => {
     async function fetchTenant() {
       try {
         const res = await fetch("/api/tenants");
-        if (res.ok) {
-          const { tenant } = await res.json();
-          const config = (tenant.emailTemplateConfig || {}) as Record<string, string>;
-          setSmtpHost(config.smtpHost || "");
-          setSmtpPort(config.smtpPort || "");
-          setSmtpUser(config.smtpUser || "");
-          // Masked password — display as bullets placeholder, not in field value
-          setSmtpPass(config.smtpPass ? MASKED_SENTINEL : "");
-          setSmtpPassDirty(false);
-          setSmtpFrom(config.smtpFrom || "");
-          setSmsApiKey(config.smsApiKey ? MASKED_SENTINEL : "");
-          setSmsApiKeyDirty(false);
-          setSmsApiUrl(config.smsApiUrl || "");
-          setWhatsappApiKey(config.whatsappApiKey ? MASKED_SENTINEL : "");
-          setWhatsappApiKeyDirty(false);
-          setWhatsappApiUrl(config.whatsappApiUrl || "");
-        }
+        if (!res.ok) throw new Error("fetch failed");
+        const { tenant } = await res.json();
+
+        // Existing email/SMS/WhatsApp from emailTemplateConfig JSON
+        const config = (tenant.emailTemplateConfig || {}) as Record<string, string>;
+        setSmtpHost(config.smtpHost || "");
+        setSmtpPort(config.smtpPort || "");
+        setSmtpUser(config.smtpUser || "");
+        setSmtpPass(config.smtpPass ? MASKED_SENTINEL : "");
+        setSmtpPassDirty(false);
+        setSmtpFrom(config.smtpFrom || "");
+        setSmsApiKey(config.smsApiKey ? MASKED_SENTINEL : "");
+        setSmsApiKeyDirty(false);
+        setSmsApiUrl(config.smsApiUrl || "");
+        setWhatsappApiKey(config.whatsappApiKey ? MASKED_SENTINEL : "");
+        setWhatsappApiKeyDirty(false);
+        setWhatsappApiUrl(config.whatsappApiUrl || "");
+
+        // Razorpay
+        setRazorpayKeyId(tenant.razorpayKeyId || "");
+        setRazorpayKeySecret(tenant.razorpayKeySecret ? MASKED_SENTINEL : "");
+        setRazorpayKeySecretDirty(false);
+        setRazorpayWebhookSecret(tenant.razorpayWebhookSecret ? MASKED_SENTINEL : "");
+        setRazorpayWebhookSecretDirty(false);
+
+        // Telephony — provider + phone number are plain; credentials are masked
+        setTelephonyProvider((tenant.telephonyProvider || "") as TelephonyProvider);
+        setTelephonyPhoneNumber(tenant.telephonyPhoneNumber || "");
+        setTelephonyConfigured(Boolean(tenant.telephonyApiKey));
+        // Always blank in fields — user re-enters all credentials to change
+        setExotelAccountSid("");
+        setExotelApiKey("");
+        setExotelApiToken("");
+        setFrejunApiKey("");
+        setTelephonyCredsDirty(false);
+
+        // STT / TTS
+        setSttProvider((tenant.sttProvider || "") as GoogleProvider);
+        setSttApiKey(tenant.sttApiKey ? MASKED_SENTINEL : "");
+        setSttApiKeyDirty(false);
+        setTtsProvider((tenant.ttsProvider || "") as GoogleProvider);
+        setTtsApiKey(tenant.ttsApiKey ? MASKED_SENTINEL : "");
+        setTtsApiKeyDirty(false);
       } catch {
         toast("error", "Failed to load integration settings");
       } finally {
@@ -72,29 +151,66 @@ export default function IntegrationsSettingsPage() {
     fetchTenant();
   }, [toast]);
 
+  // ── Build payload + save ────────────────────────────────────────────────────
   async function handleSave() {
     setSaving(true);
     try {
-      // Build payload: only include secret fields if they were dirtied with a real new value
-      const payload: Record<string, string> = {
+      const payload: Record<string, string | null> = {
         smtpHost,
         smtpPort,
         smtpUser,
         smtpFrom,
         smsApiUrl,
         whatsappApiUrl,
+        // Razorpay non-secret
+        razorpayKeyId,
+        // Telephony non-secret
+        telephonyProvider: telephonyProvider || "",
+        telephonyPhoneNumber,
+        // STT/TTS provider
+        sttProvider: sttProvider || "",
+        ttsProvider: ttsProvider || "",
       };
 
-      // Only send secret if user actually typed a new value (not the masked placeholder)
-      if (smtpPassDirty && smtpPass && !isMasked(smtpPass)) {
-        payload.smtpPass = smtpPass;
+      // Email secrets
+      if (smtpPassDirty && smtpPass && !isMasked(smtpPass)) payload.smtpPass = smtpPass;
+      if (smsApiKeyDirty && smsApiKey && !isMasked(smsApiKey)) payload.smsApiKey = smsApiKey;
+      if (whatsappApiKeyDirty && whatsappApiKey && !isMasked(whatsappApiKey)) payload.whatsappApiKey = whatsappApiKey;
+
+      // Razorpay secrets
+      if (razorpayKeySecretDirty && razorpayKeySecret && !isMasked(razorpayKeySecret)) {
+        payload.razorpayKeySecret = razorpayKeySecret;
       }
-      if (smsApiKeyDirty && smsApiKey && !isMasked(smsApiKey)) {
-        payload.smsApiKey = smsApiKey;
+      if (razorpayWebhookSecretDirty && razorpayWebhookSecret && !isMasked(razorpayWebhookSecret)) {
+        payload.razorpayWebhookSecret = razorpayWebhookSecret;
       }
-      if (whatsappApiKeyDirty && whatsappApiKey && !isMasked(whatsappApiKey)) {
-        payload.whatsappApiKey = whatsappApiKey;
+
+      // Telephony credentials — encode by provider
+      if (telephonyCredsDirty) {
+        if (telephonyProvider === "EXOTEL") {
+          if (!exotelAccountSid || !exotelApiKey || !exotelApiToken) {
+            throw new Error(
+              "Exotel requires Account SID, API Key, and API Token — fill all three or leave the section blank to keep existing credentials.",
+            );
+          }
+          payload.telephonyApiKey = JSON.stringify({
+            accountSid: exotelAccountSid,
+            apiKey: exotelApiKey,
+            apiToken: exotelApiToken,
+          });
+        } else if (telephonyProvider === "FREJUN") {
+          if (!frejunApiKey) {
+            throw new Error(
+              "FreJun requires an API Key — fill it or leave the section blank to keep existing credentials.",
+            );
+          }
+          payload.telephonyApiKey = frejunApiKey;
+        }
       }
+
+      // STT/TTS secrets
+      if (sttApiKeyDirty && sttApiKey && !isMasked(sttApiKey)) payload.sttApiKey = sttApiKey;
+      if (ttsApiKeyDirty && ttsApiKey && !isMasked(ttsApiKey)) payload.ttsApiKey = ttsApiKey;
 
       const res = await fetch("/api/tenants", {
         method: "PUT",
@@ -103,14 +219,32 @@ export default function IntegrationsSettingsPage() {
       });
 
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Failed to save");
       }
 
-      // Reset dirty flags after successful save
+      // Reset dirty flags + clear typed credential fields after successful save
       setSmtpPassDirty(false);
       setSmsApiKeyDirty(false);
       setWhatsappApiKeyDirty(false);
+      setRazorpayKeySecretDirty(false);
+      setRazorpayWebhookSecretDirty(false);
+      setSttApiKeyDirty(false);
+      setTtsApiKeyDirty(false);
+      // If telephony creds were saved, remask + clear local fields
+      if (telephonyCredsDirty) {
+        setTelephonyConfigured(true);
+        setExotelAccountSid("");
+        setExotelApiKey("");
+        setExotelApiToken("");
+        setFrejunApiKey("");
+        setTelephonyCredsDirty(false);
+      }
+      // Refresh secret-field placeholders from new values
+      if (razorpayKeySecret && !isMasked(razorpayKeySecret)) setRazorpayKeySecret(MASKED_SENTINEL);
+      if (razorpayWebhookSecret && !isMasked(razorpayWebhookSecret)) setRazorpayWebhookSecret(MASKED_SENTINEL);
+      if (sttApiKey && !isMasked(sttApiKey)) setSttApiKey(MASKED_SENTINEL);
+      if (ttsApiKey && !isMasked(ttsApiKey)) setTtsApiKey(MASKED_SENTINEL);
 
       toast("success", "Integration settings saved");
     } catch (err) {
@@ -130,7 +264,7 @@ export default function IntegrationsSettingsPage() {
 
   return (
     <div className="max-w-2xl space-y-6">
-      {/* SMTP Configuration */}
+      {/* ── SMTP ─────────────────────────────────────────────────────────── */}
       <div className="rounded-lg border border-gray-200 bg-white p-6">
         <div className="mb-4 flex items-center gap-2">
           <Mail className="h-5 w-5 text-gray-500" />
@@ -173,6 +307,7 @@ export default function IntegrationsSettingsPage() {
               type="button"
               onClick={() => setShowSmtpPass(!showSmtpPass)}
               className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+              aria-label={showSmtpPass ? "Hide SMTP password" : "Show SMTP password"}
             >
               {showSmtpPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
@@ -186,7 +321,7 @@ export default function IntegrationsSettingsPage() {
         </div>
       </div>
 
-      {/* SMS Gateway */}
+      {/* ── SMS Gateway ──────────────────────────────────────────────────── */}
       <div className="rounded-lg border border-gray-200 bg-white p-6">
         <div className="mb-4 flex items-center gap-2">
           <Phone className="h-5 w-5 text-gray-500" />
@@ -209,6 +344,7 @@ export default function IntegrationsSettingsPage() {
               type="button"
               onClick={() => setShowSmsKey(!showSmsKey)}
               className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+              aria-label={showSmsKey ? "Hide SMS API key" : "Show SMS API key"}
             >
               {showSmsKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
@@ -222,7 +358,7 @@ export default function IntegrationsSettingsPage() {
         </div>
       </div>
 
-      {/* WhatsApp */}
+      {/* ── WhatsApp ─────────────────────────────────────────────────────── */}
       <div className="rounded-lg border border-gray-200 bg-white p-6">
         <div className="mb-4 flex items-center gap-2">
           <MessageSquare className="h-5 w-5 text-gray-500" />
@@ -245,6 +381,7 @@ export default function IntegrationsSettingsPage() {
               type="button"
               onClick={() => setShowWhatsappKey(!showWhatsappKey)}
               className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+              aria-label={showWhatsappKey ? "Hide WhatsApp API key" : "Show WhatsApp API key"}
             >
               {showWhatsappKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
@@ -258,7 +395,285 @@ export default function IntegrationsSettingsPage() {
         </div>
       </div>
 
-      {/* Save */}
+      {/* ── Razorpay (Phase 6c) ──────────────────────────────────────────── */}
+      <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <CreditCard className="h-5 w-5 text-gray-500" />
+          <h2 className="text-sm font-semibold text-gray-900">Razorpay Payment Gateway</h2>
+        </div>
+        <p className="mb-4 text-xs text-gray-500">
+          Webhook URL to register in Razorpay dashboard:
+          <code className="ml-1 rounded bg-gray-100 px-1 py-0.5 text-[11px]">
+            {APP_URL}/api/webhooks/razorpay/&lt;tenant-token&gt;
+          </code>
+        </p>
+
+        <div className="space-y-4">
+          <Input
+            label="Key ID"
+            value={razorpayKeyId}
+            onChange={(e) => setRazorpayKeyId(e.target.value)}
+            placeholder="rzp_live_XXXXXXXXXXXXXXXX"
+          />
+          <div className="relative">
+            <Input
+              label="Key Secret"
+              type={showRazorpayKeySecret ? "text" : "password"}
+              value={razorpayKeySecret}
+              onChange={(e) => {
+                setRazorpayKeySecret(e.target.value);
+                setRazorpayKeySecretDirty(true);
+              }}
+              placeholder={razorpayKeySecretDirty ? "Razorpay secret key" : "Set — enter new value to change"}
+            />
+            <button
+              type="button"
+              onClick={() => setShowRazorpayKeySecret(!showRazorpayKeySecret)}
+              className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+              aria-label={showRazorpayKeySecret ? "Hide Razorpay key secret" : "Show Razorpay key secret"}
+            >
+              {showRazorpayKeySecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <div className="relative">
+            <Input
+              label="Webhook Secret"
+              type={showRazorpayWebhookSecret ? "text" : "password"}
+              value={razorpayWebhookSecret}
+              onChange={(e) => {
+                setRazorpayWebhookSecret(e.target.value);
+                setRazorpayWebhookSecretDirty(true);
+              }}
+              placeholder={razorpayWebhookSecretDirty ? "Webhook signing secret" : "Set — enter new value to change"}
+            />
+            <button
+              type="button"
+              onClick={() => setShowRazorpayWebhookSecret(!showRazorpayWebhookSecret)}
+              className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+              aria-label={showRazorpayWebhookSecret ? "Hide Razorpay webhook secret" : "Show Razorpay webhook secret"}
+            >
+              {showRazorpayWebhookSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Telephony (Phase 6d) ─────────────────────────────────────────── */}
+      <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <PhoneCall className="h-5 w-5 text-gray-500" />
+          <h2 className="text-sm font-semibold text-gray-900">Telephony Provider</h2>
+        </div>
+        <p className="mb-4 text-xs text-gray-500">
+          Voice + IVR call routing. Inbound webhook URL:
+          <code className="ml-1 rounded bg-gray-100 px-1 py-0.5 text-[11px]">
+            {APP_URL}/api/webhooks/voice/&lt;tenant-token&gt;
+          </code>
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700">Provider</label>
+            <select
+              value={telephonyProvider}
+              onChange={(e) => setTelephonyProvider(e.target.value as TelephonyProvider)}
+              className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+            >
+              <option value="">— Disabled —</option>
+              <option value="EXOTEL">Exotel</option>
+              <option value="FREJUN">FreJun</option>
+            </select>
+          </div>
+
+          <Input
+            label="Business Phone Number"
+            value={telephonyPhoneNumber}
+            onChange={(e) => setTelephonyPhoneNumber(e.target.value)}
+            placeholder="+91XXXXXXXXXX"
+          />
+
+          {telephonyProvider === "EXOTEL" && (
+            <div className="space-y-3 rounded-md border border-orange-100 bg-orange-50 p-4">
+              <p className="text-xs text-gray-600">
+                {telephonyConfigured
+                  ? "Existing Exotel credentials are stored encrypted. Fill all three fields below to replace them, or leave them blank to keep the existing credentials."
+                  : "Enter Account SID, API Key, and API Token from your Exotel dashboard."}
+              </p>
+              <Input
+                label="Account SID"
+                value={exotelAccountSid}
+                onChange={(e) => {
+                  setExotelAccountSid(e.target.value);
+                  setTelephonyCredsDirty(true);
+                }}
+                placeholder="ACXXXXXXXXXXXXXXXX"
+              />
+              <div className="relative">
+                <Input
+                  label="API Key"
+                  type={showExotelApiKey ? "text" : "password"}
+                  value={exotelApiKey}
+                  onChange={(e) => {
+                    setExotelApiKey(e.target.value);
+                    setTelephonyCredsDirty(true);
+                  }}
+                  placeholder="exo_key_xxxxxxxxxx"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowExotelApiKey(!showExotelApiKey)}
+                  className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+                  aria-label={showExotelApiKey ? "Hide Exotel API key" : "Show Exotel API key"}
+                >
+                  {showExotelApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <div className="relative">
+                <Input
+                  label="API Token"
+                  type={showExotelApiToken ? "text" : "password"}
+                  value={exotelApiToken}
+                  onChange={(e) => {
+                    setExotelApiToken(e.target.value);
+                    setTelephonyCredsDirty(true);
+                  }}
+                  placeholder="exo_token_xxxxxxxxxx"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowExotelApiToken(!showExotelApiToken)}
+                  className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+                  aria-label={showExotelApiToken ? "Hide Exotel API token" : "Show Exotel API token"}
+                >
+                  {showExotelApiToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {telephonyProvider === "FREJUN" && (
+            <div className="space-y-3 rounded-md border border-orange-100 bg-orange-50 p-4">
+              <p className="text-xs text-gray-600">
+                {telephonyConfigured
+                  ? "Existing FreJun API key is stored encrypted. Enter a new value below to replace it, or leave blank to keep the existing key."
+                  : "Enter your FreJun API key from the FreJun dashboard."}
+              </p>
+              <div className="relative">
+                <Input
+                  label="API Key"
+                  type={showFrejunApiKey ? "text" : "password"}
+                  value={frejunApiKey}
+                  onChange={(e) => {
+                    setFrejunApiKey(e.target.value);
+                    setTelephonyCredsDirty(true);
+                  }}
+                  placeholder="frejun_xxxxxxxxxxxxxxxx"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowFrejunApiKey(!showFrejunApiKey)}
+                  className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+                  aria-label={showFrejunApiKey ? "Hide FreJun API key" : "Show FreJun API key"}
+                >
+                  {showFrejunApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── STT (Phase 6d) ───────────────────────────────────────────────── */}
+      <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Mic className="h-5 w-5 text-gray-500" />
+          <h2 className="text-sm font-semibold text-gray-900">Speech-to-Text (STT)</h2>
+        </div>
+        <p className="mb-4 text-xs text-gray-500">
+          Transcribes inbound call audio for the IVR voice agent. If left blank, transcription is disabled and the IVR falls back to DTMF-only routing.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700">Provider</label>
+            <select
+              value={sttProvider}
+              onChange={(e) => setSttProvider(e.target.value as GoogleProvider)}
+              className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+            >
+              <option value="">— Disabled —</option>
+              <option value="GOOGLE">Google Cloud Speech-to-Text</option>
+            </select>
+          </div>
+          <div className="relative">
+            <Input
+              label="API Key"
+              type={showSttApiKey ? "text" : "password"}
+              value={sttApiKey}
+              onChange={(e) => {
+                setSttApiKey(e.target.value);
+                setSttApiKeyDirty(true);
+              }}
+              placeholder={sttApiKeyDirty ? "Google Cloud API key with STT enabled" : "Set — enter new value to change"}
+            />
+            <button
+              type="button"
+              onClick={() => setShowSttApiKey(!showSttApiKey)}
+              className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+              aria-label={showSttApiKey ? "Hide STT API key" : "Show STT API key"}
+            >
+              {showSttApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── TTS (Phase 6d) ───────────────────────────────────────────────── */}
+      <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Volume2 className="h-5 w-5 text-gray-500" />
+          <h2 className="text-sm font-semibold text-gray-900">Text-to-Speech (TTS)</h2>
+        </div>
+        <p className="mb-4 text-xs text-gray-500">
+          Generates outbound IVR voice prompts. If left blank, the IVR falls back to static prompts.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700">Provider</label>
+            <select
+              value={ttsProvider}
+              onChange={(e) => setTtsProvider(e.target.value as GoogleProvider)}
+              className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+            >
+              <option value="">— Disabled —</option>
+              <option value="GOOGLE">Google Cloud Text-to-Speech</option>
+            </select>
+          </div>
+          <div className="relative">
+            <Input
+              label="API Key"
+              type={showTtsApiKey ? "text" : "password"}
+              value={ttsApiKey}
+              onChange={(e) => {
+                setTtsApiKey(e.target.value);
+                setTtsApiKeyDirty(true);
+              }}
+              placeholder={ttsApiKeyDirty ? "Google Cloud API key with TTS enabled" : "Set — enter new value to change"}
+            />
+            <button
+              type="button"
+              onClick={() => setShowTtsApiKey(!showTtsApiKey)}
+              className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+              aria-label={showTtsApiKey ? "Hide TTS API key" : "Show TTS API key"}
+            >
+              {showTtsApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Save ─────────────────────────────────────────────────────────── */}
       <div className="flex justify-end pb-8">
         <Button onClick={handleSave} loading={saving}>
           Save Integrations
