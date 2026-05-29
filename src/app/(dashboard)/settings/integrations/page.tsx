@@ -69,17 +69,31 @@ export default function IntegrationsSettingsPage() {
   const [razorpayKeySecretDirty, setRazorpayKeySecretDirty] = React.useState(false);
   const [razorpayWebhookSecretDirty, setRazorpayWebhookSecretDirty] = React.useState(false);
 
-  // ── Telephony (Phase 6d) ────────────────────────────────────────────────────
+  // ── Telephony (Phase 6d / 6h) ──────────────────────────────────────────────
+  // Provider + phone number are stored plain. Provider-specific credentials
+  // are bundled (Exotel: JSON {accountSid, apiKey, apiToken}, FreJun: JSON
+  // {apiToken, callerNumber?, webhookSecret}) and stored encrypted as
+  // telephonyApiKey. The webhook signature secret is stored separately as
+  // telephonyApiSecret — Exotel needs this explicitly; for FreJun the
+  // webhookSecret inside the JSON serves the same purpose so we just submit
+  // a placeholder for telephonyApiSecret to satisfy the completeness guard.
   const [telephonyProvider, setTelephonyProvider] = React.useState<TelephonyProvider>("");
   const [telephonyPhoneNumber, setTelephonyPhoneNumber] = React.useState("");
   const [telephonyConfigured, setTelephonyConfigured] = React.useState(false);
+  // Exotel
   const [exotelAccountSid, setExotelAccountSid] = React.useState("");
   const [exotelApiKey, setExotelApiKey] = React.useState("");
   const [exotelApiToken, setExotelApiToken] = React.useState("");
-  const [frejunApiKey, setFrejunApiKey] = React.useState("");
+  const [exotelWebhookSecret, setExotelWebhookSecret] = React.useState("");
   const [showExotelApiKey, setShowExotelApiKey] = React.useState(false);
   const [showExotelApiToken, setShowExotelApiToken] = React.useState(false);
-  const [showFrejunApiKey, setShowFrejunApiKey] = React.useState(false);
+  const [showExotelWebhookSecret, setShowExotelWebhookSecret] = React.useState(false);
+  // FreJun
+  const [frejunApiToken, setFrejunApiToken] = React.useState("");
+  const [frejunCallerNumber, setFrejunCallerNumber] = React.useState("");
+  const [frejunWebhookSecret, setFrejunWebhookSecret] = React.useState("");
+  const [showFrejunApiToken, setShowFrejunApiToken] = React.useState(false);
+  const [showFrejunWebhookSecret, setShowFrejunWebhookSecret] = React.useState(false);
   const [telephonyCredsDirty, setTelephonyCredsDirty] = React.useState(false);
 
   // ── STT (Phase 6d) ──────────────────────────────────────────────────────────
@@ -132,7 +146,10 @@ export default function IntegrationsSettingsPage() {
         setExotelAccountSid("");
         setExotelApiKey("");
         setExotelApiToken("");
-        setFrejunApiKey("");
+        setExotelWebhookSecret("");
+        setFrejunApiToken("");
+        setFrejunCallerNumber("");
+        setFrejunWebhookSecret("");
         setTelephonyCredsDirty(false);
 
         // STT / TTS
@@ -186,11 +203,13 @@ export default function IntegrationsSettingsPage() {
       }
 
       // Telephony credentials — encode by provider
+      // telephonyApiKey: provider-specific JSON, encrypted at rest
+      // telephonyApiSecret: webhook signature secret, encrypted at rest
       if (telephonyCredsDirty) {
         if (telephonyProvider === "EXOTEL") {
-          if (!exotelAccountSid || !exotelApiKey || !exotelApiToken) {
+          if (!exotelAccountSid || !exotelApiKey || !exotelApiToken || !exotelWebhookSecret) {
             throw new Error(
-              "Exotel requires Account SID, API Key, and API Token — fill all three or leave the section blank to keep existing credentials.",
+              "Exotel requires Account SID, API Key, API Token, AND Webhook Secret — fill all four or leave the section blank to keep existing credentials.",
             );
           }
           payload.telephonyApiKey = JSON.stringify({
@@ -198,13 +217,22 @@ export default function IntegrationsSettingsPage() {
             apiKey: exotelApiKey,
             apiToken: exotelApiToken,
           });
+          payload.telephonyApiSecret = exotelWebhookSecret;
         } else if (telephonyProvider === "FREJUN") {
-          if (!frejunApiKey) {
+          if (!frejunApiToken || !frejunWebhookSecret) {
             throw new Error(
-              "FreJun requires an API Key — fill it or leave the section blank to keep existing credentials.",
+              "FreJun requires an API Token and Webhook Secret — fill both or leave the section blank to keep existing credentials.",
             );
           }
-          payload.telephonyApiKey = frejunApiKey;
+          payload.telephonyApiKey = JSON.stringify({
+            apiToken: frejunApiToken,
+            ...(frejunCallerNumber ? { callerNumber: frejunCallerNumber } : {}),
+            webhookSecret: frejunWebhookSecret,
+          });
+          // FreJun's webhook secret lives inside telephonyApiKey JSON; we still
+          // populate telephonyApiSecret to satisfy the completeness guard in
+          // getTelephonyProvider() — same value, encrypted separately.
+          payload.telephonyApiSecret = frejunWebhookSecret;
         }
       }
 
@@ -237,7 +265,10 @@ export default function IntegrationsSettingsPage() {
         setExotelAccountSid("");
         setExotelApiKey("");
         setExotelApiToken("");
-        setFrejunApiKey("");
+        setExotelWebhookSecret("");
+        setFrejunApiToken("");
+        setFrejunCallerNumber("");
+        setFrejunWebhookSecret("");
         setTelephonyCredsDirty(false);
       }
       // Refresh secret-field placeholders from new values
@@ -496,8 +527,8 @@ export default function IntegrationsSettingsPage() {
             <div className="space-y-3 rounded-md border border-orange-100 bg-orange-50 p-4">
               <p className="text-xs text-gray-600">
                 {telephonyConfigured
-                  ? "Existing Exotel credentials are stored encrypted. Fill all three fields below to replace them, or leave them blank to keep the existing credentials."
-                  : "Enter Account SID, API Key, and API Token from your Exotel dashboard."}
+                  ? "Existing Exotel credentials are stored encrypted. Fill all four fields below to replace them, or leave them blank to keep the existing credentials."
+                  : "Enter Account SID, API Key, API Token, and Webhook Secret from your Exotel dashboard. The Webhook Secret is the value you set in Exotel under Settings → Webhook Signing Secret."}
               </p>
               <Input
                 label="Account SID"
@@ -548,6 +579,26 @@ export default function IntegrationsSettingsPage() {
                   {showExotelApiToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              <div className="relative">
+                <Input
+                  label="Webhook Signing Secret"
+                  type={showExotelWebhookSecret ? "text" : "password"}
+                  value={exotelWebhookSecret}
+                  onChange={(e) => {
+                    setExotelWebhookSecret(e.target.value);
+                    setTelephonyCredsDirty(true);
+                  }}
+                  placeholder="The secret used to sign Exotel callbacks"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowExotelWebhookSecret(!showExotelWebhookSecret)}
+                  className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+                  aria-label={showExotelWebhookSecret ? "Hide Exotel webhook secret" : "Show Exotel webhook secret"}
+                >
+                  {showExotelWebhookSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
           )}
 
@@ -555,27 +606,56 @@ export default function IntegrationsSettingsPage() {
             <div className="space-y-3 rounded-md border border-orange-100 bg-orange-50 p-4">
               <p className="text-xs text-gray-600">
                 {telephonyConfigured
-                  ? "Existing FreJun API key is stored encrypted. Enter a new value below to replace it, or leave blank to keep the existing key."
-                  : "Enter your FreJun API key from the FreJun dashboard."}
+                  ? "Existing FreJun credentials are stored encrypted. Fill API Token + Webhook Secret to replace them, or leave them blank to keep existing."
+                  : "Enter your FreJun API Token + Webhook Secret. Caller Number is optional — falls back to the Business Phone Number above."}
               </p>
               <div className="relative">
                 <Input
-                  label="API Key"
-                  type={showFrejunApiKey ? "text" : "password"}
-                  value={frejunApiKey}
+                  label="API Token"
+                  type={showFrejunApiToken ? "text" : "password"}
+                  value={frejunApiToken}
                   onChange={(e) => {
-                    setFrejunApiKey(e.target.value);
+                    setFrejunApiToken(e.target.value);
                     setTelephonyCredsDirty(true);
                   }}
                   placeholder="frejun_xxxxxxxxxxxxxxxx"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowFrejunApiKey(!showFrejunApiKey)}
+                  onClick={() => setShowFrejunApiToken(!showFrejunApiToken)}
                   className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
-                  aria-label={showFrejunApiKey ? "Hide FreJun API key" : "Show FreJun API key"}
+                  aria-label={showFrejunApiToken ? "Hide FreJun API token" : "Show FreJun API token"}
                 >
-                  {showFrejunApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showFrejunApiToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <Input
+                label="Caller Number (optional)"
+                value={frejunCallerNumber}
+                onChange={(e) => {
+                  setFrejunCallerNumber(e.target.value);
+                  setTelephonyCredsDirty(true);
+                }}
+                placeholder="+91XXXXXXXXXX (defaults to Business Phone Number)"
+              />
+              <div className="relative">
+                <Input
+                  label="Webhook Signing Secret"
+                  type={showFrejunWebhookSecret ? "text" : "password"}
+                  value={frejunWebhookSecret}
+                  onChange={(e) => {
+                    setFrejunWebhookSecret(e.target.value);
+                    setTelephonyCredsDirty(true);
+                  }}
+                  placeholder="The secret used to sign FreJun callbacks"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowFrejunWebhookSecret(!showFrejunWebhookSecret)}
+                  className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+                  aria-label={showFrejunWebhookSecret ? "Hide FreJun webhook secret" : "Show FreJun webhook secret"}
+                >
+                  {showFrejunWebhookSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>

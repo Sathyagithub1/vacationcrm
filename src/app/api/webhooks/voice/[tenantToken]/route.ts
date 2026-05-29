@@ -32,6 +32,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getTelephonyProvider } from "@/lib/telephony";
+import { decryptIfEncrypted } from "@/lib/crypto/credential-encryption";
 import { ensureConversationForCall } from "@/modules/voice/conversation-sync";
 import {
   renderIvrResponse,
@@ -96,31 +97,45 @@ export async function POST(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Voice agent not enabled for this tenant" }, { status: 403 });
   }
 
-  // ── 2. Signature verification ────────────────────────────────────────────
+  // ── 2. Signature verification (Phase 6h — decrypt + fail-closed) ─────────
+  // telephonyApiSecret is stored encrypted (v1:...) by the Phase 6g UI; must
+  // decrypt before passing to the provider's HMAC verifier.
+  //
+  // If the tenant has configured telephony, any error in the verification
+  // pipeline (decrypt failure, provider factory failure, signature mismatch)
+  // MUST fail closed. Previously the catch block swallowed the error and let
+  // the request through unauthenticated — that was a free DoS / pay-to-play
+  // (STT/TTS spend) vector for anyone who knew the intakeToken.
   const rawBody = await req.text();
 
   if (tenant.telephonyProvider && tenant.telephonyApiSecret) {
     try {
       const provider = await getTelephonyProvider(tenant.id);
+      const webhookSecret = decryptIfEncrypted(tenant.telephonyApiSecret);
       const signature = req.headers.get("x-voice-signature");
-      const valid = provider.verifyWebhookSignature(rawBody, signature, tenant.telephonyApiSecret);
+      const valid = provider.verifyWebhookSignature(rawBody, signature, webhookSecret);
       if (!valid) {
         return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
       }
     } catch (err) {
-      console.warn(
+      console.error(
         `[VoiceWebhook] Signature verification error for tenant ${tenant.id}:`,
         err instanceof Error ? err.message : err,
       );
-      // If telephony provider is not configured, skip signature check
-      // (allows testing without full telephony setup)
+      return NextResponse.json(
+        { error: "Signature verification failed" },
+        { status: 401 },
+      );
     }
-  } else if (tenant.telephonyApiSecret) {
+  } else if (tenant.telephonyProvider || tenant.telephonyApiSecret) {
+    // Partial config — one of provider/secret set but not both. Fail loud.
     return NextResponse.json(
-      { error: "Telephony provider not configured" },
+      { error: "Telephony provider not fully configured" },
       { status: 412 },
     );
   }
+  // Both null = telephony not configured at all; allow (legacy behaviour for
+  // test/dev setups where the IVR is exercised without real telephony).
 
   // ── 3. Parse body ─────────────────────────────────────────────────────────
   let body: InboundCallBody;

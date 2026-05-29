@@ -73,30 +73,34 @@ export async function getTelephonyProvider(
 
   const provider = tenant.telephonyProvider.toLowerCase();
 
-  // Decrypt telephonyApiSecret at read time.
-  // telephonyApiKey is not a secret (it is the public key/SID) — no decrypt needed.
-  // NEVER log the decrypted secret.
+  // Phase 6h — decrypt BOTH apiKey and apiSecret at read time. The earlier
+  // assumption that telephonyApiKey is "not a secret" was wrong: for Exotel
+  // we now bundle {accountSid, apiKey, apiToken} into telephonyApiKey as a
+  // JSON blob (per the Phase 6f wire format) and Phase 6g encrypts it on
+  // write. Without this decrypt the adapters fail to parse a v1:... blob.
+  //
+  // NEVER log the decrypted values.
+  const apiKey = decryptIfEncrypted(tenant.telephonyApiKey);
   const apiSecret = decryptIfEncrypted(tenant.telephonyApiSecret);
 
   switch (provider) {
     case "exotel":
-      return new ExotelAdapter(tenant.telephonyApiKey, apiSecret);
+      return new ExotelAdapter(apiKey, apiSecret);
 
     case "plivo":
-      return new PlivoAdapter(tenant.telephonyApiKey, apiSecret);
+      return new PlivoAdapter(apiKey, apiSecret);
 
     case "twilio":
-      return new TwilioAdapter(tenant.telephonyApiKey, apiSecret);
+      return new TwilioAdapter(apiKey, apiSecret);
 
     case "frejun": {
       // FreJun stores all credentials (apiToken, callerNumber, webhookSecret)
       // as an encrypted JSON string in telephonyApiKey.
       // telephonyApiSecret is not used for FreJun but must be non-empty to pass
       // the credential-completeness guard above.
-      const raw = decryptIfEncrypted(tenant.telephonyApiKey);
       let parsed: FreJunCredentials & { webhookSecret: string };
       try {
-        parsed = JSON.parse(raw) as FreJunCredentials & { webhookSecret: string };
+        parsed = JSON.parse(apiKey) as FreJunCredentials & { webhookSecret: string };
       } catch {
         throw new Error(
           `[telephony] FreJun telephonyApiKey for tenant ${tenantId} is not valid JSON. ` +
