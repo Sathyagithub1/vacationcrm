@@ -106,11 +106,31 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // 3. Fetch razorpayKeyId (public) + display name for the Checkout window
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: user.tenantId },
-      select: { razorpayKeyId: true, name: true, productName: true },
-    });
+    // 3. Fetch razorpayKeyId (public) + display name + tour context for the
+    //    Razorpay Checkout popup. Phase 6i — include tour name/dates so the
+    //    customer sees what they're paying for on the popup and on their
+    //    bank statement reference instead of a generic "Tour booking" string.
+    const [tenant, tourForPopup] = await Promise.all([
+      prisma.tenant.findUnique({
+        where: { id: user.tenantId },
+        select: { razorpayKeyId: true, name: true, productName: true },
+      }),
+      tourId
+        ? prisma.tour.findUnique({
+            where: { id: tourId },
+            select: { name: true, code: true, startDate: true, endDate: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    let popupDescription: string;
+    if (tourForPopup) {
+      const dateRange = `${new Date(tourForPopup.startDate).toLocaleDateString()}–${new Date(tourForPopup.endDate).toLocaleDateString()}`;
+      const seatsLabel = seats > 1 ? `${seats} seats` : "1 seat";
+      popupDescription = `${tourForPopup.name} (${tourForPopup.code}) · ${dateRange} · ${seatsLabel}`;
+    } else {
+      popupDescription = seats > 1 ? `Booking — ${seats} seats` : "Booking";
+    }
 
     return NextResponse.json(
       {
@@ -120,6 +140,7 @@ export async function POST(request: NextRequest) {
         currency: orderResult.currency,
         razorpayKeyId: tenant?.razorpayKeyId ?? null,
         merchantName: tenant?.productName || tenant?.name || "Payment",
+        popupDescription,
       },
       { status: 201 },
     );

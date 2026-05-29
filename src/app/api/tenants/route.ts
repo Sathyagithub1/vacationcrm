@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, requirePermission, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
+import { requireAuth, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
+import { hasPermission } from "@/modules/auth/rbac";
 import { buildThemeConfig } from "@/modules/white-label/theme.service";
 import { logAudit } from "@/modules/audit/audit.service";
 import { encryptCredential } from "@/lib/crypto/credential-encryption";
+import type { Permission } from "@/types";
 
 const MASK = "••••••••";
 const MASK_PATTERN = /^[•]+$/;
@@ -42,6 +44,8 @@ export async function GET() {
         address: true,
         subscriptionStatus: true,
         createdAt: true,
+        // Phase 6i — webhook URL hints in the settings UI need the real token
+        intakeToken: true,
         // Phase 6c — Razorpay
         razorpayKeyId: true,
         razorpayKeySecret: true,
@@ -98,7 +102,12 @@ export async function GET() {
  */
 export async function PUT(request: Request) {
   try {
-    const { user } = await requirePermission("settings:general");
+    // Phase 6i — permission gating is per-section. Auth happens once; then
+    // each section the request touches is checked against its own permission.
+    // Before this, all fields rode on `settings:general`, which meant a role
+    // with general access could rotate Razorpay/telephony secrets it had no
+    // business changing.
+    const { user } = await requireAuth();
 
     const body = await request.json();
     const {
@@ -136,6 +145,34 @@ export async function PUT(request: Request) {
       ttsProvider,
       ttsApiKey,
     } = body;
+
+    const generalTouched =
+      name !== undefined || address !== undefined ||
+      timezone !== undefined || currency !== undefined;
+    const brandingTouched =
+      productName !== undefined ||
+      (primaryColor !== undefined && secondaryColor !== undefined);
+    const integrationsTouched =
+      smtpHost !== undefined || smtpPort !== undefined || smtpUser !== undefined ||
+      smtpPass !== undefined || smtpFrom !== undefined || smsApiKey !== undefined ||
+      smsApiUrl !== undefined || whatsappApiKey !== undefined || whatsappApiUrl !== undefined ||
+      razorpayKeyId !== undefined || razorpayKeySecret !== undefined ||
+      razorpayWebhookSecret !== undefined ||
+      telephonyProvider !== undefined || telephonyApiKey !== undefined ||
+      telephonyApiSecret !== undefined || telephonyPhoneNumber !== undefined ||
+      sttProvider !== undefined || sttApiKey !== undefined ||
+      ttsProvider !== undefined || ttsApiKey !== undefined;
+
+    const requiredPerms: Permission[] = [];
+    if (generalTouched) requiredPerms.push("settings:general");
+    if (brandingTouched) requiredPerms.push("settings:branding");
+    if (integrationsTouched) requiredPerms.push("settings:integrations");
+
+    for (const perm of requiredPerms) {
+      if (!hasPermission(user.role, perm)) {
+        return forbidden();
+      }
+    }
 
     const updateData: Record<string, unknown> = {};
 

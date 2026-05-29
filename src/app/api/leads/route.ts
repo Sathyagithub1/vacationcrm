@@ -52,7 +52,14 @@ export async function GET(request: NextRequest) {
       where.departmentId = departmentId;
     }
     if (stageId) where.stageId = stageId;
-    if (assignedTo) where.assignedTo = assignedTo;
+    // Phase 6i — `assignedTo=null` is the sentinel for the "Unassigned"
+    // filter; otherwise a literal user id is matched. AGENT role still hard-
+    // scopes to its own user above, so this override only applies to
+    // DEPT_MANAGER / COMPANY_ADMIN.
+    if (user.role !== "AGENT") {
+      if (assignedTo === "null") where.assignedTo = null;
+      else if (assignedTo) where.assignedTo = assignedTo;
+    }
     if (source && VALID_SOURCES.includes(source)) where.source = source;
     if (priority && VALID_PRIORITIES.includes(priority)) where.priority = priority;
     if (isFutureInterest === "true") where.isFutureInterest = true;

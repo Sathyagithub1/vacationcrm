@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { ActivityTimeline, type Activity } from "@/components/leads/activity-timeline";
 import { LeadDetailPanel } from "@/components/leads/lead-detail-panel";
 import { AiInsightsPanel } from "@/components/leads/ai-insights-panel";
+import { BookTourCard } from "@/components/leads/book-tour-card";
 
 interface Customer {
   id: string;
@@ -487,6 +488,16 @@ export default function LeadDetailPage() {
             onEscalate={() => setEscalateModal(true)}
             changingStage={changingStage}
             assigningAgent={assigningAgent}
+          />
+
+          {/* Phase 6i — Tour booking surface (was the biggest workflow gap
+              identified by the travel-agent UX audit). fetchLead() reloads
+              both the lead AND its activities, so the new payment + booking
+              show up in the timeline as soon as the operator returns. */}
+          <BookTourCard
+            customerId={lead.customer.id}
+            leadId={lead.id}
+            onBooked={fetchLead}
           />
         </div>
       </div>

@@ -156,7 +156,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
     );
   }
 
-  // ── 4. Create VoiceCall ───────────────────────────────────────────────────
+  // ── 4. Create VoiceCall directly in IN_PROGRESS state ────────────────────
+  // Phase 6i — previously created in RINGING then fire-and-forget update to
+  // IN_PROGRESS, which raced with the /turn webhook (a late RINGING→IN_PROGRESS
+  // write could resurrect a row already flipped to COMPLETED). Fold both writes
+  // into the initial create so there's no race window.
   let voiceCallId: string;
   try {
     const voiceCall = await anyPrisma.voiceCall.create({
@@ -166,7 +170,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
         fromNumber,
         toNumber,
         providerCallSid: callSid,
-        status: "RINGING",
+        status: "IN_PROGRESS",
+        answeredAt: new Date(),
         language: body.language ?? (tenant.voiceAgentLanguages?.[0] ?? "en-IN"),
       },
       select: { id: true },
@@ -177,20 +182,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 
-  // ── 5. Link conversation (fire-and-forget) ─────────────────────────────
+  // ── 5. Link conversation (fire-and-forget; bounded by single retry) ─────
   void ensureConversationForCall(voiceCallId).catch((err) => {
     console.warn(
       `[VoiceWebhook] ensureConversationForCall failed for call ${voiceCallId}:`,
       err instanceof Error ? err.message : err,
     );
-  });
-
-  // ── 6. Update call status to IN_PROGRESS ─────────────────────────────────
-  void anyPrisma.voiceCall.update({
-    where: { id: voiceCallId },
-    data: { status: "IN_PROGRESS", answeredAt: new Date() },
-  }).catch((err: unknown) => {
-    console.warn(`[VoiceWebhook] Failed to update call status for ${voiceCallId}:`, err);
   });
 
   // ── 7. Return greeting ────────────────────────────────────────────────────

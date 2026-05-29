@@ -27,17 +27,60 @@ function isMasked(val: string): boolean {
 type TelephonyProvider = "" | "EXOTEL" | "FREJUN";
 type GoogleProvider = "" | "GOOGLE";
 
+// Phase 6i — copy-to-clipboard display for tenant-scoped webhook URLs.
+// Renders the URL when known; falls back to a "still loading" hint until the
+// intakeToken returns from the API.
+function WebhookUrl({ url }: { url: string }) {
+  const [copied, setCopied] = React.useState(false);
+
+  if (!url) {
+    return (
+      <span className="rounded bg-gray-100 px-1 py-0.5 text-[11px] text-gray-500">
+        loading…
+      </span>
+    );
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard may be blocked (insecure context, permission); ignore silently
+    }
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 align-middle">
+      <code className="break-all rounded bg-gray-100 px-1 py-0.5 text-[11px]">{url}</code>
+      <button
+        type="button"
+        onClick={copy}
+        className="text-[11px] text-orange-600 hover:text-orange-700"
+        aria-label="Copy webhook URL"
+      >
+        {copied ? "copied!" : "copy"}
+      </button>
+    </span>
+  );
+}
+
 // Derive the public-facing app URL once — used to display copy-pasteable
-// webhook URLs to the operator. Falls back to a placeholder if unset so the
-// hint still reads coherently.
+// webhook URLs to the operator. Phase 6i — falls back to window.location.origin
+// at runtime when NEXT_PUBLIC_APP_URL isn't set, so the hint shows a real URL
+// rather than a "your-app-domain" placeholder that breaks Razorpay setup.
 const APP_URL =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_APP_URL) ||
-  "https://your-app-domain";
+  (typeof window !== "undefined" ? window.location.origin : "https://vacaycrm.app");
 
 export default function IntegrationsSettingsPage() {
   const { toast } = useToast();
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+
+  // Phase 6i — used to build copy-pasteable webhook URLs displayed to operators
+  const [intakeToken, setIntakeToken] = React.useState<string>("");
 
   // ── SMTP ────────────────────────────────────────────────────────────────────
   const [smtpHost, setSmtpHost] = React.useState("");
@@ -115,6 +158,8 @@ export default function IntegrationsSettingsPage() {
         const res = await fetch("/api/tenants");
         if (!res.ok) throw new Error("fetch failed");
         const { tenant } = await res.json();
+
+        setIntakeToken(tenant.intakeToken || "");
 
         // Existing email/SMS/WhatsApp from emailTemplateConfig JSON
         const config = (tenant.emailTemplateConfig || {}) as Record<string, string>;
@@ -433,10 +478,8 @@ export default function IntegrationsSettingsPage() {
           <h2 className="text-sm font-semibold text-gray-900">Razorpay Payment Gateway</h2>
         </div>
         <p className="mb-4 text-xs text-gray-500">
-          Webhook URL to register in Razorpay dashboard:
-          <code className="ml-1 rounded bg-gray-100 px-1 py-0.5 text-[11px]">
-            {APP_URL}/api/webhooks/razorpay/&lt;tenant-token&gt;
-          </code>
+          Webhook URL to register in Razorpay dashboard:{" "}
+          <WebhookUrl url={intakeToken ? `${APP_URL}/api/webhooks/razorpay/${intakeToken}` : ""} />
         </p>
 
         <div className="space-y-4">
@@ -444,7 +487,7 @@ export default function IntegrationsSettingsPage() {
             label="Key ID"
             value={razorpayKeyId}
             onChange={(e) => setRazorpayKeyId(e.target.value)}
-            placeholder="rzp_live_XXXXXXXXXXXXXXXX"
+            placeholder="rzp_test_XXXXXXXXXXXXXXXX (use rzp_live_… for production)"
           />
           <div className="relative">
             <Input
@@ -496,10 +539,8 @@ export default function IntegrationsSettingsPage() {
           <h2 className="text-sm font-semibold text-gray-900">Telephony Provider</h2>
         </div>
         <p className="mb-4 text-xs text-gray-500">
-          Voice + IVR call routing. Inbound webhook URL:
-          <code className="ml-1 rounded bg-gray-100 px-1 py-0.5 text-[11px]">
-            {APP_URL}/api/webhooks/voice/&lt;tenant-token&gt;
-          </code>
+          Voice + IVR call routing. Inbound webhook URL:{" "}
+          <WebhookUrl url={intakeToken ? `${APP_URL}/api/webhooks/voice/${intakeToken}` : ""} />
         </p>
 
         <div className="space-y-4">

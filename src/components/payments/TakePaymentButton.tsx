@@ -107,6 +107,7 @@ export function TakePaymentButton({
         currency: string;
         razorpayKeyId: string | null;
         merchantName: string;
+        popupDescription: string;
       };
 
       if (!data.razorpayKeyId) {
@@ -127,7 +128,7 @@ export function TakePaymentButton({
         currency: data.currency,
         order_id: data.razorpayOrderId,
         name: data.merchantName,
-        description: tourId ? `Tour booking — ${seats} seat(s)` : "Payment",
+        description: data.popupDescription,
         handler: (response) => {
           onSuccess?.({ paymentId: data.paymentId, razorpayOrderId: response.razorpay_order_id });
         },

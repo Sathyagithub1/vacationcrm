@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const { id } = await context.params;
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const amountPaise =
+    const rawAmountPaise =
       typeof body.amountPaise === "number" && body.amountPaise > 0
         ? body.amountPaise
         : undefined;
@@ -68,11 +68,58 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // 2. Call Razorpay refund API
+    // Phase 6i — clamp the partial-refund amount so a caller can never request
+    // more than the captured amount. Razorpay would reject it, but only after
+    // a network round-trip — better to fail fast on our side. Full refund is
+    // the default when amountPaise is omitted.
+    const amountPaise =
+      rawAmountPaise === undefined
+        ? undefined
+        : Math.min(rawAmountPaise, payment.amountPaise);
+    if (rawAmountPaise !== undefined && rawAmountPaise > payment.amountPaise) {
+      return NextResponse.json(
+        {
+          error: `Refund amount ${rawAmountPaise} paise exceeds captured amount ${payment.amountPaise} paise.`,
+        },
+        { status: 422 },
+      );
+    }
+
+    // Phase 6i — claim exclusivity BEFORE the external call. Atomic
+    // status-conditional update: any concurrent refund attempt that races us
+    // here will affect zero rows and we'll catch the P2025 to return 409.
+    // This eliminates the double-refund window between findFirst and update.
+    try {
+      await (db.payment.update as Function)({
+        where: { id: payment.id, status: "CAPTURED" },
+        data: { status: "REFUND_PENDING" },
+      });
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code;
+      if (code === "P2025") {
+        return NextResponse.json(
+          {
+            error:
+              "Refund already in flight for this payment. Status changed concurrently — refresh and retry if appropriate.",
+          },
+          { status: 409 },
+        );
+      }
+      throw err;
+    }
+
+    // 2. Call Razorpay refund API. If this throws, roll the status back so
+    //    the user can retry rather than being stuck in REFUND_PENDING forever.
     let refundResult: Awaited<ReturnType<typeof refundPayment>>;
     try {
       refundResult = await refundPayment(user.tenantId, payment.razorpayPaymentId, amountPaise);
     } catch (err: unknown) {
+      // Roll back: only flip CAPTURED if we still hold REFUND_PENDING
+      await (db.payment.update as Function)({
+        where: { id: payment.id, status: "REFUND_PENDING" },
+        data: { status: "CAPTURED" },
+      }).catch(() => {});
+
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("credentials not configured")) {
         return NextResponse.json(
@@ -83,12 +130,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
       console.error("Razorpay refund error:", msg);
       return NextResponse.json({ error: "Failed to initiate refund with Razorpay" }, { status: 502 });
     }
-
-    // 3. Mark payment as REFUND_PENDING — webhook will complete the flow
-    await (db.payment.update as Function)({
-      where: { id: payment.id },
-      data: { status: "REFUND_PENDING" },
-    });
 
     return NextResponse.json({
       ok: true,

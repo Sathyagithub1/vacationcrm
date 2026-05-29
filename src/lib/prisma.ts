@@ -24,7 +24,7 @@ if (process.env.NODE_ENV !== "production") {
 export function tenantPrisma(tenantId: string) {
   return prisma.$extends({
     query: {
-      $allOperations({ model, operation, args, query }) {
+      async $allOperations({ model, operation, args, query }) {
         if (model === "Tenant") return query(args);
 
         const modelsWithTenant = [
@@ -60,7 +60,26 @@ export function tenantPrisma(tenantId: string) {
           }
         }
 
-        if (["findMany", "findFirst", "findUnique", "count", "aggregate", "groupBy",
+        // Phase 6i — `findUnique` accepts only the unique-key shape (e.g.
+        // `{ id }`); Prisma rejects/strips arbitrary extra fields in `where`,
+        // so injecting `tenantId` into it does NOT enforce tenant scoping —
+        // the guarantee silently went missing. Run the query unmodified and
+        // verify ownership on the way out: if the row belongs to a different
+        // tenant, return null exactly as if the row did not exist.
+        if (operation === "findUnique" || operation === "findUniqueOrThrow") {
+          const result = await query(args);
+          if (result && typeof result === "object" && "tenantId" in result) {
+            if ((result as { tenantId?: string }).tenantId !== tenantId) {
+              if (operation === "findUniqueOrThrow") {
+                throw new Error(`No ${model} found`);
+              }
+              return null;
+            }
+          }
+          return result;
+        }
+
+        if (["findMany", "findFirst", "count", "aggregate", "groupBy",
              "update", "updateMany", "delete", "deleteMany", "upsert"].includes(operation)) {
           if ("where" in args) {
             (args.where as any).tenantId = tenantId;

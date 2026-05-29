@@ -41,9 +41,12 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Too many login attempts. Please try again in 15 minutes.");
         }
 
+        // Use the lowercased email so a user logged-in as "User@x.com" hits
+        // the same rate-limit bucket and the same row as "user@x.com".
+        // Application code must store emails in lowercase at signup time.
         const user = await prisma.user.findFirst({
           where: {
-            email: credentials.email,
+            email,
             isActive: true,
           },
         });

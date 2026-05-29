@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Plus, Search, LayoutList, Columns3 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,14 @@ interface Agent {
 export default function LeadsPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id ?? null;
+  const currentUserRole = session?.user?.role ?? null;
+  // Phase 6i — Agents default to "Assigned to me" so their first view shows
+  // their own queue instead of every lead in the tenant. Managers/admins see
+  // all by default and can toggle to "Me" with one click. Special sentinel
+  // "__me__" survives URL serialization without leaking the user's UUID.
+  const isAgent = currentUserRole === "AGENT";
 
   // View state
   const [viewMode, setViewMode] = React.useState<"table" | "board">("table");
@@ -56,8 +65,19 @@ export default function LeadsPage() {
   const [filterStage, setFilterStage] = React.useState("");
   const [filterSource, setFilterSource] = React.useState("");
   const [filterPriority, setFilterPriority] = React.useState("");
+  const [filterAssignee, setFilterAssignee] = React.useState<string>("");
   const [filterTier, setFilterTier] = React.useState("");
   const [sortByScore, setSortByScore] = React.useState<"asc" | "desc" | null>(null);
+
+  // Initialize assignee filter to "Me" for agents the first time we know who
+  // they are. Only fire once — leave their explicit choice alone afterwards.
+  const initializedAssigneeRef = React.useRef(false);
+  React.useEffect(() => {
+    if (initializedAssigneeRef.current) return;
+    if (!currentUserId) return;
+    if (isAgent) setFilterAssignee("__me__");
+    initializedAssigneeRef.current = true;
+  }, [currentUserId, isAgent]);
 
   // Reference data
   const [departments, setDepartments] = React.useState<Department[]>([]);
@@ -128,6 +148,14 @@ export default function LeadsPage() {
       if (filterStage) params.set("stageId", filterStage);
       if (filterSource) params.set("source", filterSource);
       if (filterPriority) params.set("priority", filterPriority);
+      // Phase 6i — assignedTo filter (resolve "__me__" sentinel here)
+      if (filterAssignee === "__me__" && currentUserId) {
+        params.set("assignedTo", currentUserId);
+      } else if (filterAssignee === "__unassigned__") {
+        params.set("assignedTo", "null");
+      } else if (filterAssignee) {
+        params.set("assignedTo", filterAssignee);
+      }
 
       const res = await fetch(`/api/leads?${params}`);
       if (!res.ok) throw new Error("Failed to fetch");
@@ -157,7 +185,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedQuery, page, filterDept, filterStage, filterSource, filterPriority, viewMode, toast]);
+  }, [debouncedQuery, page, filterDept, filterStage, filterSource, filterPriority, filterAssignee, currentUserId, viewMode, toast]);
 
   React.useEffect(() => {
     fetchLeads();
@@ -380,6 +408,22 @@ export default function LeadsPage() {
           {priorityOptions.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
+        </select>
+
+        <select
+          value={filterAssignee}
+          onChange={(e) => { setFilterAssignee(e.target.value); setPage(1); }}
+          className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
+          aria-label="Filter by assignee"
+        >
+          <option value="">All assignees</option>
+          {currentUserId && <option value="__me__">Assigned to me</option>}
+          <option value="__unassigned__">Unassigned</option>
+          {agents
+            .filter((a) => a.id !== currentUserId)
+            .map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
         </select>
 
         <select
