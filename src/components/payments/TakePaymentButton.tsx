@@ -106,6 +106,7 @@ export function TakePaymentButton({
         amount: number;
         currency: string;
         razorpayKeyId: string | null;
+        merchantName: string;
       };
 
       if (!data.razorpayKeyId) {
@@ -125,7 +126,7 @@ export function TakePaymentButton({
         amount: data.amount,
         currency: data.currency,
         order_id: data.razorpayOrderId,
-        name: "Holiday Delight",
+        name: data.merchantName,
         description: tourId ? `Tour booking — ${seats} seat(s)` : "Payment",
         handler: (response) => {
           onSuccess?.({ paymentId: data.paymentId, razorpayOrderId: response.razorpay_order_id });

@@ -106,10 +106,10 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // 3. Fetch razorpayKeyId (public key) for the frontend Checkout
+    // 3. Fetch razorpayKeyId (public) + display name for the Checkout window
     const tenant = await prisma.tenant.findUnique({
       where: { id: user.tenantId },
-      select: { razorpayKeyId: true },
+      select: { razorpayKeyId: true, name: true, productName: true },
     });
 
     return NextResponse.json(
@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
         amount: orderResult.amount,
         currency: orderResult.currency,
         razorpayKeyId: tenant?.razorpayKeyId ?? null,
+        merchantName: tenant?.productName || tenant?.name || "Payment",
       },
       { status: 201 },
     );

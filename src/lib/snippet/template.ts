@@ -35,7 +35,7 @@ export function buildSnippet(tenantToken: string, baseUrl: string): string {
   const safeToken = JSON.stringify(tenantToken);
   const safeBase  = JSON.stringify(baseUrl);
 
-  return `/* Holiday Delight CRM — website snippet (auto-generated, do not edit) */
+  return `/* CRM website snippet (auto-generated, do not edit) */
 (function (token, base) {
   "use strict";
 
