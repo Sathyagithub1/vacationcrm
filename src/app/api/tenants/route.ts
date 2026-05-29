@@ -254,7 +254,25 @@ export async function PUT(request: Request) {
       newValue: auditFields,
     });
 
-    return NextResponse.json({ tenant });
+    // Phase 6h — mask secrets in PUT response so the wire never carries
+    // the (encrypted) ciphertext to the client. GET applies the same masking;
+    // before this fix PUT silently leaked the v1:... blob in its 200 body.
+    const masked = tenant as Record<string, unknown>;
+    const emailConfig = masked.emailTemplateConfig as Record<string, unknown> | null;
+    if (emailConfig) {
+      if (emailConfig.smtpPass) emailConfig.smtpPass = MASK;
+      if (emailConfig.smsApiKey) emailConfig.smsApiKey = MASK;
+      if (emailConfig.whatsappApiKey) emailConfig.whatsappApiKey = MASK;
+      masked.emailTemplateConfig = emailConfig;
+    }
+    if (masked.razorpayKeySecret) masked.razorpayKeySecret = MASK;
+    if (masked.razorpayWebhookSecret) masked.razorpayWebhookSecret = MASK;
+    if (masked.telephonyApiKey) masked.telephonyApiKey = MASK;
+    if (masked.telephonyApiSecret) masked.telephonyApiSecret = MASK;
+    if (masked.sttApiKey) masked.sttApiKey = MASK;
+    if (masked.ttsApiKey) masked.ttsApiKey = MASK;
+
+    return NextResponse.json({ tenant: masked });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Unauthorized") return unauthorized();
