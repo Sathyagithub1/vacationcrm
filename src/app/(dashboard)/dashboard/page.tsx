@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { WidgetGrid, type WidgetData } from "@/components/dashboard/widget-grid";
 import { WidgetBuilder, type WidgetConfig } from "@/components/dashboard/widget-builder";
 import { AgentDefaultWidgets } from "@/components/dashboard/agent-default-widgets";
+import { OnboardingChecklist } from "@/components/onboarding/onboarding-checklist";
 
 export default function DashboardPage() {
   const { toast } = useToast();
@@ -144,6 +145,9 @@ export default function DashboardPage() {
           Add Widget
         </Button>
       </PageHeader>
+
+      {/* First-run go-live checklist — self-gates to COMPANY_ADMIN/SUPER_ADMIN */}
+      <OnboardingChecklist />
 
       {isAgent && (
         <div className="mt-6">

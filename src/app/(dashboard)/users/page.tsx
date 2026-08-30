@@ -41,6 +41,9 @@ interface UserData {
   isActive: boolean;
   lastSeenAt: string | null;
   createdAt: string;
+  tags: string[];
+  languages: string[];
+  assignmentTier: number | null;
   department: { id: string; name: string; color: string | null } | null;
 }
 
@@ -110,6 +113,9 @@ export default function UsersPage() {
   const [editRole, setEditRole] = React.useState("");
   const [editDept, setEditDept] = React.useState("");
   const [editName, setEditName] = React.useState("");
+  const [editTags, setEditTags] = React.useState<string[]>([]);
+  const [editLanguages, setEditLanguages] = React.useState<string[]>([]);
+  const [editTier, setEditTier] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
   // Debounce search
@@ -218,6 +224,9 @@ export default function UsersPage() {
     setEditRole(u.role);
     setEditDept(u.departmentId || "");
     setEditName(u.name);
+    setEditTags(u.tags ?? []);
+    setEditLanguages(u.languages ?? []);
+    setEditTier(u.assignmentTier != null ? String(u.assignmentTier) : "");
     setEditModalOpen(true);
   }
 
@@ -234,6 +243,9 @@ export default function UsersPage() {
           role: editRole,
           departmentId: editDept || null,
           name: editName.trim(),
+          tags: editTags,
+          languages: editLanguages,
+          assignmentTier: editTier.trim() === "" ? null : Number(editTier),
         }),
       });
       if (!res.ok) {
@@ -345,7 +357,24 @@ export default function UsersPage() {
                           imageUrl={u.avatarUrl || undefined}
                           size="sm"
                         />
-                        <span className="font-medium text-gray-900">{u.name}</span>
+                        <div className="min-w-0">
+                          <span className="font-medium text-gray-900">{u.name}</span>
+                          {u.tags && u.tags.length > 0 && (
+                            <div className="mt-0.5 flex flex-wrap gap-1">
+                              {u.tags.slice(0, 4).map((t) => (
+                                <span
+                                  key={t}
+                                  className="rounded bg-primary-50 px-1.5 py-0.5 text-[10px] font-medium text-primary-600"
+                                >
+                                  {t}
+                                </span>
+                              ))}
+                              {u.tags.length > 4 && (
+                                <span className="text-[10px] text-gray-400">+{u.tags.length - 4}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -552,6 +581,36 @@ export default function UsersPage() {
             value={editDept}
             onChange={(e) => setEditDept(e.target.value)}
           />
+
+          {/* Skill-based routing — only meaningful for agents / managers who receive leads */}
+          {(editRole === "AGENT" || editRole === "DEPT_MANAGER") && (
+            <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <p className="text-xs font-medium text-gray-500">
+                Skill-based routing — used by the assignment engine to match leads to this agent.
+              </p>
+              <ChipInput
+                label="Skill tags"
+                placeholder="e.g. luxury, honeymoon, visa — Enter or comma to add"
+                values={editTags}
+                onChange={setEditTags}
+              />
+              <ChipInput
+                label="Languages"
+                placeholder="e.g. en, hi, ta — Enter or comma to add"
+                values={editLanguages}
+                onChange={setEditLanguages}
+              />
+              <Input
+                label="Assignment tier (optional)"
+                type="number"
+                min={1}
+                value={editTier}
+                onChange={(e) => setEditTier(e.target.value)}
+                placeholder="Lower = higher priority (AI-tiered strategy)"
+              />
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-2">
             <Button
               type="button"
@@ -566,6 +625,73 @@ export default function UsersPage() {
           </div>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+// ─── Chip input for skill tags / languages ──────────────────────────────────
+
+function ChipInput({
+  label,
+  placeholder,
+  values,
+  onChange,
+}: {
+  label: string;
+  placeholder?: string;
+  values: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = React.useState("");
+
+  function commit(raw: string) {
+    const parts = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+    const next = Array.from(new Set([...values, ...parts]));
+    onChange(next);
+    setDraft("");
+  }
+
+  return (
+    <div>
+      <label className="mb-1.5 block text-sm font-medium text-gray-700">{label}</label>
+      <div className="flex flex-wrap gap-1.5 rounded-md border border-gray-300 bg-white p-2 focus-within:border-primary-400 focus-within:ring-2 focus-within:ring-primary-200">
+        {values.map((v) => (
+          <span
+            key={v}
+            className="inline-flex items-center gap-1 rounded bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700"
+          >
+            {v}
+            <button
+              type="button"
+              onClick={() => onChange(values.filter((x) => x !== v))}
+              className="text-primary-400 hover:text-primary-700"
+              aria-label={`Remove ${v}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault();
+              commit(draft);
+            } else if (e.key === "Backspace" && draft === "" && values.length > 0) {
+              onChange(values.slice(0, -1));
+            }
+          }}
+          onBlur={() => commit(draft)}
+          placeholder={values.length === 0 ? placeholder : ""}
+          className="min-w-[8rem] flex-1 border-0 p-0 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-0"
+        />
+      </div>
     </div>
   );
 }

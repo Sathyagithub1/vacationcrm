@@ -26,6 +26,9 @@ export async function GET(
         isActive: true,
         lastSeenAt: true,
         createdAt: true,
+        tags: true,
+        languages: true,
+        assignmentTier: true,
         department: { select: { id: true, name: true, color: true } },
       },
     });
@@ -85,6 +88,46 @@ export async function PUT(
 
     if (body.phone !== undefined) {
       updateData.phone = body.phone?.trim() || null;
+    }
+
+    // Skill-based routing fields (Phase 6p). These feed the assignment engine's
+    // SKILL_BASED strategy (agent.tags / agent.languages) and AI_TIERED
+    // (assignmentTier). Free-form string arrays — deduped + trimmed.
+    if (Array.isArray(body.tags)) {
+      updateData.tags = Array.from(
+        new Set(
+          body.tags
+            .filter((t: unknown): t is string => typeof t === "string")
+            .map((t: string) => t.trim())
+            .filter(Boolean),
+        ),
+      );
+    }
+
+    if (Array.isArray(body.languages)) {
+      updateData.languages = Array.from(
+        new Set(
+          body.languages
+            .filter((t: unknown): t is string => typeof t === "string")
+            .map((t: string) => t.trim())
+            .filter(Boolean),
+        ),
+      );
+    }
+
+    if (body.assignmentTier !== undefined) {
+      if (body.assignmentTier === null || body.assignmentTier === "") {
+        updateData.assignmentTier = null;
+      } else {
+        const tier = Number(body.assignmentTier);
+        if (!Number.isInteger(tier) || tier < 1) {
+          return NextResponse.json(
+            { error: "assignmentTier must be a positive whole number or null" },
+            { status: 400 },
+          );
+        }
+        updateData.assignmentTier = tier;
+      }
     }
 
     const updated = await db.user.update({
