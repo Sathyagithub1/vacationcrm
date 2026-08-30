@@ -1,3 +1,34 @@
+# TODO_BLOCKERS — Phase 6m (Tour bulk import)
+
+---
+
+## Phase 6m — Bulk tour import + quick-create fix (2026-08-30)
+
+Lets operators populate tour inventory fast (feeds the book→pay→revenue chain).
+
+### Landed
+- **`POST /api/tours/import`** (`requirePermission("settings:integrations")`)
+  — accepts `{ tours: [...] }`, validates and creates each row independently
+  (one bad row never blocks the rest), resolves department by name or id (or the
+  sole dept if blank), catches P2002 as "code already exists". Returns per-row
+  results `{created, failed, total, results[]}` — no silent partial import.
+  Caps at 500 rows.
+- **Import CSV UI** on /settings/tours — button + modal with template download,
+  file picker, client-side CSV parse (quoted-field aware), parsed-row preview,
+  and a per-row ✓/✗ results list.
+- **Fixed a pre-existing bug**: the "New Tour" quick-create only sent
+  name/code/capacity, but `POST /api/tours` requires departmentId + start/end
+  dates → every quick-create 400'd. Added a Department select + start/end date
+  inputs (fetches /api/departments); it now actually creates a tour.
+
+### Verified
+- `tsc` clean; `next build --webpack` exit 0 (108 pages);
+  `tours/import/route.test.ts` 7/7 (auth, empty, create+dept-by-name, unknown-dept
+  partial-fail, P2002 dup, missing-fields, sole-dept default).
+- NOT yet exercised live end-to-end (needs deploy + a real CSV upload).
+
+---
+
 # TODO_BLOCKERS — Phase 6l (Revenue report)
 
 ---
