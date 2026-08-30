@@ -17,6 +17,7 @@ const REPORT_TABS = [
   { label: "Source", value: "source-analysis" },
   { label: "Follow-ups", value: "follow-up-effectiveness" },
   { label: "Trends", value: "time-trends" },
+  { label: "Revenue", value: "revenue" },
 ];
 
 export default function ReportsPage() {
@@ -237,6 +238,8 @@ function ReportContent({ type, data }: { type: string; data: any }) {
       return <FollowUpReport data={data} />;
     case "time-trends":
       return <TimeTrendsReport data={data} />;
+    case "revenue":
+      return <RevenueReport data={data} />;
     default:
       return <GenericTable rows={data.rows} />;
   }
@@ -402,6 +405,60 @@ function TimeTrendsReport({ data }: { data: any }) {
           Lead Volume ({data.granularity || "daily"})
         </h3>
         <LineChartComponent data={chartData} height={300} />
+      </div>
+      <div className="mt-4">
+        <GenericTable rows={data.rows} />
+      </div>
+    </div>
+  );
+}
+
+function RevenueReport({ data }: { data: any }) {
+  const inr = new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  });
+  const s = data.summary || {};
+
+  const cards = [
+    { label: "Net Revenue", value: inr.format(s.netRevenue ?? 0), accent: "text-emerald-600" },
+    { label: "Total Captured", value: inr.format(s.totalRevenue ?? 0), accent: "text-gray-900" },
+    { label: "Refunds", value: inr.format(s.refunds ?? 0), accent: "text-red-600" },
+    { label: "Avg Order Value", value: inr.format(s.avgOrderValue ?? 0), accent: "text-gray-900" },
+  ];
+
+  const chartData = data.rows.map((r: any) => ({
+    name: r.period,
+    capturedRevenue: r.capturedRevenue,
+    refunds: r.refunds,
+  }));
+
+  return (
+    <div>
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {cards.map((c) => (
+          <div key={c.label} className="rounded-lg border border-gray-200 bg-white p-4 text-center">
+            <div className={`text-2xl font-bold ${c.accent}`}>{c.value}</div>
+            <div className="mt-1 text-xs text-gray-500">{c.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <h3 className="mb-1 text-sm font-semibold text-gray-800">Revenue by Month</h3>
+        <p className="mb-4 text-xs text-gray-500">
+          Captured payments vs refunds ({s.payments ?? 0} captured payment{(s.payments ?? 0) === 1 ? "" : "s"}). Amounts in ₹.
+        </p>
+        <BarChartComponent
+          data={chartData}
+          bars={[
+            { dataKey: "capturedRevenue", color: "#22c55e", name: "Captured (₹)" },
+            { dataKey: "refunds", color: "#ef4444", name: "Refunds (₹)" },
+          ]}
+          xKey="name"
+          height={300}
+          showLegend
+        />
       </div>
       <div className="mt-4">
         <GenericTable rows={data.rows} />

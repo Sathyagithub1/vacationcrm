@@ -403,6 +403,103 @@ export async function getTimeTrends(filters: ReportFilters & { granularity?: str
   return { granularity, rows };
 }
 
+// ─── Revenue ────────────────────────────────────────────────────────────────
+
+/**
+ * Revenue report from Razorpay payments.
+ *
+ * Money is recognised at capture time (`paidAt`) and refunds at `refundedAt`,
+ * bucketed by month. Net = captured − refunded. All figures are real amounts
+ * from the payments table (paise → rupees); nothing is fabricated.
+ *
+ * RBAC: payments have no direct department/agent column, so scoping is applied
+ * through the related lead (AGENT → lead.assignedTo, DEPT_MANAGER → lead.departmentId).
+ * Payments not linked to a lead are therefore excluded for scoped roles.
+ */
+export async function getRevenue(filters: ReportFilters) {
+  const { tenantId, dateFrom, dateTo, departmentId, scopedDepartmentId, scopedAssignedTo } = filters;
+
+  // Default to the last 12 months when no explicit range is given.
+  const effectiveFrom = dateFrom
+    ? new Date(dateFrom)
+    : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+  const effectiveTo = dateTo ? new Date(dateTo) : new Date();
+
+  const where: Record<string, unknown> = { tenantId };
+  // RBAC hard-scope through the lead relation (takes precedence over departmentId).
+  if (scopedAssignedTo) {
+    where.lead = { assignedTo: scopedAssignedTo };
+  } else if (scopedDepartmentId) {
+    where.lead = { departmentId: scopedDepartmentId };
+  } else if (departmentId) {
+    where.lead = { departmentId };
+  }
+
+  const payments = await prisma.payment.findMany({
+    where: {
+      ...where,
+      OR: [
+        { paidAt: { gte: effectiveFrom, lte: effectiveTo } },
+        { refundedAt: { gte: effectiveFrom, lte: effectiveTo } },
+      ],
+    },
+    select: { amountPaise: true, status: true, paidAt: true, refundedAt: true },
+  });
+
+  const monthKey = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  const buckets: Record<string, { capturedPaise: number; refundedPaise: number; count: number }> = {};
+  let totalCapturedPaise = 0;
+  let totalRefundedPaise = 0;
+  let capturedCount = 0;
+
+  for (const p of payments) {
+    // Captured revenue is recognised at paidAt for any payment that was
+    // captured — including ones later refunded (the refund is a separate line).
+    if (p.paidAt && ["CAPTURED", "REFUND_PENDING", "REFUNDED"].includes(p.status)) {
+      const key = monthKey(p.paidAt);
+      (buckets[key] ??= { capturedPaise: 0, refundedPaise: 0, count: 0 });
+      buckets[key].capturedPaise += p.amountPaise;
+      buckets[key].count += 1;
+      totalCapturedPaise += p.amountPaise;
+      capturedCount += 1;
+    }
+    // Refunds are recognised at refundedAt.
+    if (p.refundedAt && p.status === "REFUNDED") {
+      const key = monthKey(p.refundedAt);
+      (buckets[key] ??= { capturedPaise: 0, refundedPaise: 0, count: 0 });
+      buckets[key].refundedPaise += p.amountPaise;
+      totalRefundedPaise += p.amountPaise;
+    }
+  }
+
+  const rows = Object.keys(buckets)
+    .sort()
+    .map((period) => {
+      const b = buckets[period];
+      return {
+        period,
+        capturedRevenue: round2(b.capturedPaise / 100),
+        refunds: round2(b.refundedPaise / 100),
+        netRevenue: round2((b.capturedPaise - b.refundedPaise) / 100),
+        payments: b.count,
+      };
+    });
+
+  return {
+    summary: {
+      totalRevenue: round2(totalCapturedPaise / 100),
+      netRevenue: round2((totalCapturedPaise - totalRefundedPaise) / 100),
+      refunds: round2(totalRefundedPaise / 100),
+      payments: capturedCount,
+      avgOrderValue: capturedCount > 0 ? round2(totalCapturedPaise / 100 / capturedCount) : 0,
+    },
+    rows,
+  };
+}
+
 // ─── CSV Generation ─────────────────────────────────────────────────────────
 
 export function generateCSV(headers: string[], rows: Record<string, unknown>[]): string {

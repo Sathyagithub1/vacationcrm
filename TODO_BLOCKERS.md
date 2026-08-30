@@ -1,3 +1,33 @@
+# TODO_BLOCKERS — Phase 6l (Revenue report)
+
+---
+
+## Phase 6l — Revenue report (2026-08-30)
+
+Adds a **Revenue** tab to /reports, built on the payments data wired in 6j.
+All figures are real (paise → ₹ from the payments table); nothing fabricated.
+
+### Landed
+- **`getRevenue()`** in reports.service.ts — payments bucketed by month;
+  revenue recognised at `paidAt` (CAPTURED/REFUND_PENDING/REFUNDED), refunds at
+  `refundedAt` (REFUNDED). Net = captured − refunded. Summary: total captured,
+  net, refunds, payment count, avg order value. Defaults to last 12 months.
+  RBAC-scoped through the lead relation (AGENT → lead.assignedTo, DEPT_MANAGER →
+  lead.departmentId) — consistent with the other reports.
+- **Route** `/api/reports?type=revenue` (added to VALID_TYPES + switch). CSV/PDF
+  export work automatically (generic, off `rows`).
+- **UI** new "Revenue" tab + `RevenueReport` renderer: ₹-formatted summary cards
+  (Net / Captured / Refunds / Avg Order Value) + captured-vs-refunds bar chart +
+  detail table. Respects the existing date/department filters.
+
+### Verified
+- `tsc` clean; `next build --webpack` exit 0 (107 pages);
+  `reports.service.test.ts` 3/3 (sum/net/refund/AOV math, ignores CREATED/FAILED,
+  AGENT lead-scoping). NOT yet exercised with real payments live (payments=0 in
+  prod until an operator takes a real payment).
+
+---
+
 # TODO_BLOCKERS — Phase 6k (Integration test-connection)
 
 ---

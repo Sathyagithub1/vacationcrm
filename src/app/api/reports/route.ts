@@ -7,6 +7,7 @@ import {
   getSourceAnalysis,
   getFollowUpEffectiveness,
   getTimeTrends,
+  getRevenue,
   generateCSV,
 } from "@/modules/analytics/reports.service";
 
@@ -17,6 +18,7 @@ const VALID_TYPES = [
   "source-analysis",
   "follow-up-effectiveness",
   "time-trends",
+  "revenue",
 ];
 
 // GET /api/reports?type=...&dateFrom=...&dateTo=...&departmentId=...&format=json|csv
@@ -80,6 +82,9 @@ export async function GET(request: NextRequest) {
         break;
       case "time-trends":
         data = await getTimeTrends({ ...filters, granularity });
+        break;
+      case "revenue":
+        data = await getRevenue(filters);
         break;
       default:
         return NextResponse.json({ error: "Unknown report type" }, { status: 400 });
