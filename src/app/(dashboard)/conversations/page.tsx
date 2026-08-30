@@ -5,6 +5,7 @@ import { Spinner } from "@/components/ui/loading";
 import { useToast } from "@/components/ui/toast";
 import { ConversationList, type ConversationListItem } from "@/components/chat/conversation-list";
 import { ChatThread } from "@/components/chat/chat-thread";
+import { ConversationQuickActions } from "@/components/chat/conversation-quick-actions";
 import { CustomerInfoPanel } from "@/components/chat/customer-info-panel";
 import type { MessageData } from "@/components/chat/message-bubble";
 import { useSocket, useConversationSocket } from "@/hooks/use-socket";
@@ -290,7 +291,21 @@ export default function ConversationsPage() {
       </div>
 
       {/* Center panel: Chat thread */}
-      <div className="flex-1">
+      <div className="flex flex-1 flex-col">
+        {/* Inline quick actions: callback chips + "/" command menu */}
+        {selectedId && detail && (
+          <ConversationQuickActions
+            context={{
+              leadId: detail.lead.id,
+              departmentId: detail.lead.department?.id ?? null,
+              customerName: detail.lead.customer.name,
+            }}
+            disabled={detail.status === "CLOSED"}
+            cannedResponses={cannedResponses}
+            onSendMessage={handleSendMessage}
+          />
+        )}
+        <div className="min-h-0 flex-1">
         <ChatThread
           conversationId={selectedId}
           conversationStatus={detail?.status || ""}
@@ -303,6 +318,7 @@ export default function ConversationsPage() {
           onMarkAsSpam={selectedId ? () => setSpamModalOpen(true) : undefined}
           sending={sending}
         />
+        </div>
         {/* Typing indicator */}
         {typingUser && selectedId && (
           <div className="border-t border-gray-100 px-4 py-1">

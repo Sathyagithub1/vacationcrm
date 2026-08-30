@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requirePermission, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { logAudit } from "@/modules/audit/audit.service";
+import { resolveCustomerByPhone } from "@/modules/customers/phone-identity";
 
 // GET /api/customers — list with search, filter, pagination
 export async function GET(request: NextRequest) {
@@ -62,15 +63,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Mobile is required" }, { status: 400 });
     }
 
-    // Check for duplicate mobile
-    const existing = await db.customer.findFirst({
-      where: { mobile: mobile.trim() },
-    });
+    // Phone-as-identity dedupe: if a customer with the same NORMALIZED phone
+    // already exists in this tenant, REUSE it instead of creating a duplicate.
+    // This never deletes or overwrites the existing customer — it is returned
+    // as-is with a `deduped: true` flag so callers can attach to it.
+    const existing = await resolveCustomerByPhone(db, user.tenantId, mobile);
     if (existing) {
-      return NextResponse.json(
-        { error: "A customer with this mobile number already exists" },
-        { status: 409 }
-      );
+      return NextResponse.json({ customer: existing, deduped: true }, { status: 200 });
     }
 
     const customer = await (db.customer.create as Function)({

@@ -30,6 +30,8 @@ interface WidgetConfig {
   placeholderText: string | null;
   position: string;
   buttonIcon: string;
+  // themeOverride also carries the capture-gate/consent settings
+  // (requireContactInfo, requireConsent, consentText) — see resolveCaptureSettings.
   themeOverride: Record<string, unknown> | null;
   offlineMessage: string | null;
   quickActions: QuickAction[] | null;
@@ -83,6 +85,56 @@ function resolveThemeColor(config: WidgetConfig | null): string {
   return "#2563EB";
 }
 
+// ── Capture-gate & consent settings ─────────────────────────────────────────
+// These new toggles are stored inside the existing WidgetConfig.themeOverride JSON
+// (no schema change / migration): { requireContactInfo, requireConsent, consentText }.
+// When the keys are absent both gates default OFF, so the widget behaves exactly
+// as before for configs that predate this feature.
+
+interface CaptureSettings {
+  requireContactInfo: boolean;
+  requireConsent: boolean;
+  consentText: string;
+}
+
+const DEFAULT_CONSENT_TEXT =
+  "By starting this chat you agree to our Privacy Policy and consent to being contacted about your enquiry.";
+
+function resolveCaptureSettings(config: WidgetConfig | null): CaptureSettings {
+  const override = (config?.themeOverride as Record<string, unknown> | null) ?? null;
+  const requireContactInfo = override?.requireContactInfo === true;
+  const requireConsent = override?.requireConsent === true;
+  const consentText =
+    typeof override?.consentText === "string" && override.consentText.trim()
+      ? (override.consentText as string).trim()
+      : DEFAULT_CONSENT_TEXT;
+  return { requireContactInfo, requireConsent, consentText };
+}
+
+interface CapturedContact {
+  name: string;
+  phone: string;
+  email: string;
+}
+
+function getStoredContactGate(tenant: string, dept: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(`hd-contact-done-${tenant}-${dept}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markContactGateDone(tenant: string, dept: string) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(`hd-contact-done-${tenant}-${dept}`, "1");
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 function WidgetChatInner() {
@@ -106,6 +158,36 @@ function WidgetChatInner() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const primaryColor = resolveThemeColor(config);
+  const capture = resolveCaptureSettings(config);
+
+  // Pre-chat capture-gate state. `gatePassed` becomes true once the visitor has
+  // satisfied whatever gates are enabled (contact form + consent), or immediately
+  // if neither gate is enabled / it was already satisfied on a prior visit.
+  const [gatePassed, setGatePassed] = useState(false);
+  const [capturedContact, setCapturedContact] = useState<CapturedContact | null>(null);
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [gateError, setGateError] = useState<string | null>(null);
+
+  // Decide whether the pre-chat gate must be shown once config loads.
+  useEffect(() => {
+    if (!config || !tenant || !dept) return;
+    const settings = resolveCaptureSettings(config);
+    const needsGate = settings.requireContactInfo || settings.requireConsent;
+    // If no gate is configured, or the visitor already passed the contact gate
+    // in a previous session (and no fresh consent is required), pass immediately.
+    if (!needsGate) {
+      setGatePassed(true);
+      return;
+    }
+    if (settings.requireContactInfo && !settings.requireConsent && getStoredContactGate(tenant, dept)) {
+      setGatePassed(true);
+      return;
+    }
+    setGatePassed(false);
+  }, [config, tenant, dept]);
 
   // ── Load widget config ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -131,7 +213,8 @@ function WidgetChatInner() {
 
   // ── Create / resume session ────────────────────────────────────────────────
   useEffect(() => {
-    if (!config || !tenant || !dept) return;
+    // Hold off creating a session until any pre-chat capture/consent gate is passed.
+    if (!config || !tenant || !dept || !gatePassed) return;
 
     const visitorId = generateVisitorId();
 
@@ -154,6 +237,17 @@ function WidgetChatInner() {
         pageUrl: typeof window !== "undefined" ? window.location.href : undefined,
         referrer: typeof document !== "undefined" ? document.referrer : undefined,
         userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+        // Pass captured pre-chat contact so the session creates/links a lead/customer.
+        // Omitted (undefined) when nothing was captured — backward-compatible.
+        ...(capturedContact
+          ? {
+              contact: {
+                name: capturedContact.name,
+                phone: capturedContact.phone,
+                ...(capturedContact.email ? { email: capturedContact.email } : {}),
+              },
+            }
+          : {}),
       }),
     })
       .then((r) => {
@@ -169,7 +263,7 @@ function WidgetChatInner() {
       .catch(() => {
         setConfigError("Could not start chat session. Please refresh and try again.");
       });
-  }, [config, tenant, dept]);
+  }, [config, tenant, dept, gatePassed, capturedContact]);
 
   // ── Load history once session is ready ────────────────────────────────────
   useEffect(() => {
@@ -302,6 +396,39 @@ function WidgetChatInner() {
     }
   };
 
+  // ── Pre-chat gate submit ────────────────────────────────────────────────────
+  const handleGateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setGateError(null);
+
+    if (capture.requireContactInfo) {
+      const name = contactName.trim();
+      const phone = contactPhone.trim();
+      const email = contactEmail.trim();
+      if (!name) {
+        setGateError("Please enter your name.");
+        return;
+      }
+      if (!phone) {
+        setGateError("Please enter your phone number.");
+        return;
+      }
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setGateError("Please enter a valid email address.");
+        return;
+      }
+      setCapturedContact({ name, phone, email });
+      markContactGateDone(tenant, dept);
+    }
+
+    if (capture.requireConsent && !consentChecked) {
+      setGateError("Please acknowledge the consent notice to continue.");
+      return;
+    }
+
+    setGatePassed(true);
+  };
+
   // ─── Render states ──────────────────────────────────────────────────────────
 
   if (loadingConfig) {
@@ -346,6 +473,208 @@ function WidgetChatInner() {
 
   const placeholderText = config?.placeholderText ?? "Type a message...";
 
+  // Shared branded header — reused by both the pre-chat gate and the chat UI.
+  const headerBlock = (
+    <div
+      style={{
+        backgroundColor: primaryColor,
+        color: "#FFFFFF",
+        padding: "12px 16px",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        flexShrink: 0,
+      }}
+    >
+      {config?.tenant?.logoUrl && (
+        <img
+          src={config.tenant.logoUrl}
+          alt={config.tenant.name}
+          style={{ height: 28, width: 28, borderRadius: 4, objectFit: "contain", background: "#fff" }}
+        />
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 15, lineHeight: "1.2" }}>
+          {config?.department?.name ?? config?.tenant?.productName ?? "Support"}
+        </div>
+        <div style={{ fontSize: 11, opacity: 0.85 }}>
+          {config?.tenant?.productName ?? config?.tenant?.name}
+        </div>
+      </div>
+      <button
+        onClick={handleClose}
+        aria-label="Close chat"
+        style={{
+          background: "transparent",
+          border: "none",
+          color: "#FFFFFF",
+          cursor: "pointer",
+          padding: 4,
+          display: "flex",
+          alignItems: "center",
+          opacity: 0.85,
+          flexShrink: 0,
+        }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+  );
+
+  const gateInputStyle: React.CSSProperties = {
+    width: "100%",
+    border: "1px solid #D1D5DB",
+    borderRadius: 10,
+    padding: "10px 12px",
+    fontSize: 13.5,
+    outline: "none",
+    backgroundColor: "#FFFFFF",
+    color: "#111827",
+    boxSizing: "border-box",
+    transition: "border-color 0.15s",
+  };
+
+  // ─── Pre-chat capture / consent gate ──────────────────────────────────────
+  if (!gatePassed) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100vh",
+          backgroundColor: "#FFFFFF",
+          fontFamily: "system-ui, -apple-system, sans-serif",
+          fontSize: 14,
+          overflow: "hidden",
+        }}
+      >
+        {headerBlock}
+
+        <form
+          onSubmit={handleGateSubmit}
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "20px 18px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          {capture.requireContactInfo && (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>
+                Before we start
+              </div>
+              <div style={{ fontSize: 13, color: "#6B7280", marginTop: -8, lineHeight: 1.5 }}>
+                Please share your details so our team can assist you.
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label htmlFor="gate-name" style={{ fontSize: 12, fontWeight: 500, color: "#374151" }}>
+                  Name<span style={{ color: "#EF4444" }}> *</span>
+                </label>
+                <input
+                  id="gate-name"
+                  type="text"
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  placeholder="Your name"
+                  autoComplete="name"
+                  style={gateInputStyle}
+                  onFocus={(e) => (e.target.style.borderColor = primaryColor)}
+                  onBlur={(e) => (e.target.style.borderColor = "#D1D5DB")}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label htmlFor="gate-phone" style={{ fontSize: 12, fontWeight: 500, color: "#374151" }}>
+                  Phone<span style={{ color: "#EF4444" }}> *</span>
+                </label>
+                <input
+                  id="gate-phone"
+                  type="tel"
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                  placeholder="Your phone number"
+                  autoComplete="tel"
+                  style={gateInputStyle}
+                  onFocus={(e) => (e.target.style.borderColor = primaryColor)}
+                  onBlur={(e) => (e.target.style.borderColor = "#D1D5DB")}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label htmlFor="gate-email" style={{ fontSize: 12, fontWeight: 500, color: "#374151" }}>
+                  Email <span style={{ color: "#9CA3AF", fontWeight: 400 }}>(optional)</span>
+                </label>
+                <input
+                  id="gate-email"
+                  type="email"
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  style={gateInputStyle}
+                  onFocus={(e) => (e.target.style.borderColor = primaryColor)}
+                  onBlur={(e) => (e.target.style.borderColor = "#D1D5DB")}
+                />
+              </div>
+            </>
+          )}
+
+          {capture.requireConsent && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                fontSize: 12,
+                color: "#6B7280",
+                lineHeight: 1.5,
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={consentChecked}
+                onChange={(e) => setConsentChecked(e.target.checked)}
+                style={{ marginTop: 2, accentColor: primaryColor, flexShrink: 0 }}
+                aria-label="Consent acknowledgement"
+              />
+              <span>{capture.consentText}</span>
+            </label>
+          )}
+
+          {gateError && (
+            <div style={{ fontSize: 12, color: "#EF4444", lineHeight: 1.4 }}>{gateError}</div>
+          )}
+
+          <button
+            type="submit"
+            style={{
+              marginTop: "auto",
+              backgroundColor: primaryColor,
+              color: "#FFFFFF",
+              border: "none",
+              borderRadius: 10,
+              padding: "11px 16px",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "opacity 0.15s",
+            }}
+          >
+            Start chat
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   // ─── Main UI ────────────────────────────────────────────────────────────────
 
   return (
@@ -361,53 +690,7 @@ function WidgetChatInner() {
       }}
     >
       {/* ── Header ── */}
-      <div
-        style={{
-          backgroundColor: primaryColor,
-          color: "#FFFFFF",
-          padding: "12px 16px",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          flexShrink: 0,
-        }}
-      >
-        {config?.tenant?.logoUrl && (
-          <img
-            src={config.tenant.logoUrl}
-            alt={config.tenant.name}
-            style={{ height: 28, width: 28, borderRadius: 4, objectFit: "contain", background: "#fff" }}
-          />
-        )}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 600, fontSize: 15, lineHeight: "1.2" }}>
-            {config?.department?.name ?? config?.tenant?.productName ?? "Support"}
-          </div>
-          <div style={{ fontSize: 11, opacity: 0.85 }}>
-            {config?.tenant?.productName ?? config?.tenant?.name}
-          </div>
-        </div>
-        <button
-          onClick={handleClose}
-          aria-label="Close chat"
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#FFFFFF",
-            cursor: "pointer",
-            padding: 4,
-            display: "flex",
-            alignItems: "center",
-            opacity: 0.85,
-            flexShrink: 0,
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
-      </div>
+      {headerBlock}
 
       {/* ── Message list ── */}
       <div

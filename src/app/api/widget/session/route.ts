@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, tenantPrisma } from "@/lib/prisma";
-import { getOrCreateVisitor } from "@/modules/widget/visitor.service";
+import { getOrCreateVisitor, linkVisitorToCustomer } from "@/modules/widget/visitor.service";
 import { createVisitorToken } from "@/modules/widget/widget-auth.service";
 import { createNotification } from "@/modules/notifications/notification.service";
+import { findOrCreateCustomer } from "@/modules/customers/customers.service";
 
 /**
  * POST /api/widget/session
  *
  * PUBLIC — no NextAuth session required.
- * Body: { tenantSlug, deptSlug, visitorId, pageUrl?, referrer?, userAgent? }
+ * Body: { tenantSlug, deptSlug, visitorId, pageUrl?, referrer?, userAgent?, contact? }
+ *   contact — optional pre-chat capture: { name?, phone?, email? }. When the widget's
+ *   requireContactInfo gate is enabled, the visitor's captured name/phone (and optional
+ *   email) are used to find-or-create a Customer (deduped by mobile) which is then linked
+ *   to the visitor so the conversation is created with that customer. Backward-compatible:
+ *   when contact is absent the session behaves exactly as before (anonymous visitor).
  *
  * Creates or resumes a visitor session and returns:
  *   - visitorToken  — short-lived JWT for subsequent widget API calls
@@ -18,7 +24,7 @@ import { createNotification } from "@/modules/notifications/notification.service
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { tenantSlug, deptSlug, visitorId, pageUrl, referrer, userAgent } = body;
+    const { tenantSlug, deptSlug, visitorId, pageUrl, referrer, userAgent, contact } = body;
 
     if (!tenantSlug || typeof tenantSlug !== "string" || !tenantSlug.trim()) {
       return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
@@ -60,11 +66,41 @@ export async function POST(request: NextRequest) {
     }
 
     // Get or create visitor record
-    const visitor = await getOrCreateVisitor(db, visitorId.trim(), {
+    let visitor = await getOrCreateVisitor(db, visitorId.trim(), {
       pageUrl: pageUrl ?? undefined,
       referrer: referrer ?? undefined,
       userAgent: userAgent ?? undefined,
     });
+
+    // ── Pre-chat capture gate ────────────────────────────────────────────────
+    // If the widget captured contact info (name + phone required by the client
+    // gate, email optional), find-or-create a Customer (deduped by mobile) and
+    // link it to the visitor so this session's conversation is tied to a real
+    // lead/customer. Fully backward-compatible: skipped when contact is absent
+    // or lacks a name/phone, leaving the visitor anonymous as before.
+    const contactName =
+      contact && typeof contact.name === "string" ? contact.name.trim() : "";
+    const contactPhone =
+      contact && typeof contact.phone === "string" ? contact.phone.trim() : "";
+    const contactEmail =
+      contact && typeof contact.email === "string" ? contact.email.trim() : "";
+
+    if (contactName && contactPhone) {
+      try {
+        const customer = await findOrCreateCustomer(db, {
+          tenantId: tenant.id,
+          name: contactName,
+          mobile: contactPhone,
+          email: contactEmail || null,
+        });
+        await linkVisitorToCustomer(db, visitorId.trim(), customer.id);
+        // Refresh the visitor so downstream customerId resolution sees the link
+        visitor = { ...visitor, customerId: customer.id };
+      } catch (err) {
+        // Non-fatal: a capture failure must never block starting the chat.
+        console.error("[Widget] Failed to capture pre-chat contact:", err);
+      }
+    }
 
     // Find an existing ACTIVE WEBSITE conversation for this visitor scoped to this department,
     // or open a new one. We scope by assignedAgentId being set from this widgetConfig's department

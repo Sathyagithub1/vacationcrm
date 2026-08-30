@@ -2,14 +2,19 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Pencil, Check } from "lucide-react";
+import { useSession } from "next-auth/react";
+import type { Role } from "@prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { WidgetGrid, type WidgetData } from "@/components/dashboard/widget-grid";
 import { WidgetBuilder, type WidgetConfig } from "@/components/dashboard/widget-builder";
+import { AgentDefaultWidgets } from "@/components/dashboard/agent-default-widgets";
 
 export default function DashboardPage() {
   const { toast } = useToast();
+  const { data: session } = useSession();
+  const isAgent = ((session?.user?.role || "VIEWER") as Role) === "AGENT";
   const [widgets, setWidgets] = useState<WidgetData[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [editing, setEditing] = useState(false);
@@ -139,6 +144,12 @@ export default function DashboardPage() {
           Add Widget
         </Button>
       </PageHeader>
+
+      {isAgent && (
+        <div className="mt-6">
+          <AgentDefaultWidgets />
+        </div>
+      )}
 
       <div className="mt-6">
         <WidgetGrid
