@@ -14,7 +14,9 @@
  *
  * Audio source:
  *   - If `audioUrl` starts with "gs://" → `audio.uri` (GCS reference, no download)
- *   - Otherwise → fetch audio bytes, base64-encode, use `audio.content`
+ *   - Otherwise → fetch audio bytes, base64-encode, use `audio.content`.
+ *     Inline downloads are size-capped (MAX_INLINE_AUDIO_BYTES, 10 MiB) to bound
+ *     latency / DoS risk; oversized fetches throw and are absorbed by fail-soft.
  *
  * Fail-soft:
  *   Any provider error is caught, logged with tenantId, and returns
@@ -71,6 +73,15 @@ interface GoogleSttResponse {
 const DEFAULT_LANGUAGE = "en-IN";
 const GOOGLE_STT_URL = "https://speech.googleapis.com/v1/speech:recognize";
 
+/**
+ * Max size (bytes) for inline audio downloaded from a non-GCS URL before it is
+ * base64-encoded and sent to Google. Caps latency and blast radius from a
+ * malicious/oversized URL (DoS guard). GCS "gs://" refs bypass this since they
+ * are passed by reference and never downloaded here. 10 MiB comfortably covers
+ * short IVR utterances (an MP3 minute is ~1 MB).
+ */
+const MAX_INLINE_AUDIO_BYTES = 10 * 1024 * 1024;
+
 // ── Google provider implementation ────────────────────────────────────────────
 
 async function transcribeWithGoogle(
@@ -84,14 +95,33 @@ async function transcribeWithGoogle(
   if (audioUrl.startsWith("gs://")) {
     audioPayload = { uri: audioUrl };
   } else {
-    // Fetch audio bytes and base64-encode for inline content
+    // Fetch audio bytes and base64-encode for inline content.
     const audioRes = await fetch(audioUrl);
     if (!audioRes.ok) {
       throw new Error(
         `[STT/Google] Failed to fetch audio from ${audioUrl}: HTTP ${audioRes.status}`,
       );
     }
+
+    // Size guard: reject oversized downloads to bound latency / DoS risk.
+    // Cheap pre-check via Content-Length when the server advertises it...
+    const contentLength = Number(audioRes.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > MAX_INLINE_AUDIO_BYTES) {
+      throw new Error(
+        `[STT/Google] Audio too large to fetch inline: ${contentLength} bytes ` +
+          `exceeds cap of ${MAX_INLINE_AUDIO_BYTES} bytes`,
+      );
+    }
+
     const audioBuffer = await audioRes.arrayBuffer();
+    // ...and an authoritative post-download check (Content-Length may lie/be absent).
+    if (audioBuffer.byteLength > MAX_INLINE_AUDIO_BYTES) {
+      throw new Error(
+        `[STT/Google] Audio too large to fetch inline: ${audioBuffer.byteLength} bytes ` +
+          `exceeds cap of ${MAX_INLINE_AUDIO_BYTES} bytes`,
+      );
+    }
+
     const base64Audio = Buffer.from(audioBuffer).toString("base64");
     audioPayload = { content: base64Audio };
   }

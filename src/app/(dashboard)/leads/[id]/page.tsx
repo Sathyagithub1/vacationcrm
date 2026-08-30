@@ -2,10 +2,11 @@
 
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Phone, Mail, MapPin, Send, Trash2, X, Calendar, Clock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Send, Trash2, X, Calendar, Clock, AlertTriangle, History, ChevronDown, ChevronUp, CreditCard } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Spinner } from "@/components/ui/loading";
 import { Select } from "@/components/ui/select";
@@ -53,6 +54,75 @@ interface Agent {
   name: string;
 }
 
+// ── Customer History types (from /api/customers/[id] and /api/payments) ──────
+interface HistoryLead {
+  id: string;
+  destination: string | null;
+  createdAt: string;
+  stage: { id: string; name: string; color: string | null };
+  department: { id: string; name: string; color: string | null };
+}
+
+interface HistoryPayment {
+  id: string;
+  amountPaise: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+  tour: { id: string; code: string; name: string } | null;
+  lead: { id: string; destination: string | null } | null;
+}
+
+const inr = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0,
+});
+
+// Map lead stage names to the shared Badge variants (mirrors the customers page).
+const historyStageColorMap: Record<string, "default" | "info" | "warning" | "success" | "danger" | "primary"> = {
+  new: "info",
+  contacted: "primary",
+  qualified: "warning",
+  converted: "success",
+  lost: "danger",
+};
+
+function historyStageVariant(stageName: string): "default" | "info" | "warning" | "success" | "danger" | "primary" {
+  const lower = stageName.toLowerCase();
+  for (const [key, variant] of Object.entries(historyStageColorMap)) {
+    if (lower.includes(key)) return variant;
+  }
+  return "default";
+}
+
+// Map Razorpay-style payment statuses to Badge variants.
+function paymentStatusVariant(status: string): "default" | "info" | "warning" | "success" | "danger" | "primary" {
+  switch (status) {
+    case "CAPTURED":
+      return "success";
+    case "REFUNDED":
+    case "FAILED":
+      return "danger";
+    case "REFUND_PENDING":
+      return "warning";
+    case "CREATED":
+    case "AUTHORIZED":
+      return "info";
+    default:
+      return "default";
+  }
+}
+
+function formatHistoryDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export default function LeadDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -64,6 +134,14 @@ export default function LeadDetailPage() {
   const [loading, setLoading] = React.useState(true);
   const [stages, setStages] = React.useState<Stage[]>([]);
   const [agents, setAgents] = React.useState<Agent[]>([]);
+
+  // Customer History (this customer's OTHER leads + their past payments)
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [historyLoading, setHistoryLoading] = React.useState(false);
+  const [historyLoaded, setHistoryLoaded] = React.useState(false);
+  const [historyLeads, setHistoryLeads] = React.useState<HistoryLead[]>([]);
+  const [historyPayments, setHistoryPayments] = React.useState<HistoryPayment[]>([]);
+  const [historyPaymentsAvailable, setHistoryPaymentsAvailable] = React.useState(true);
 
   // Note form
   const [noteText, setNoteText] = React.useState("");
@@ -117,6 +195,64 @@ export default function LeadDetailPage() {
       setLoading(false);
     }
   }, [leadId, toast, router]);
+
+  // Fetch customer history (other leads + past payments) from EXISTING
+  // endpoints only. Fails soft per-source so a failure in one (e.g. the
+  // operator lacks payments:view) never breaks the section or the page.
+  const fetchHistory = React.useCallback(async (customerId: string, currentLeadId: string) => {
+    setHistoryLoading(true);
+    try {
+      const [custRes, payRes] = await Promise.allSettled([
+        fetch(`/api/customers/${customerId}`),
+        fetch(`/api/payments?customerId=${encodeURIComponent(customerId)}&limit=50`),
+      ]);
+
+      // Other leads — exclude the lead currently open on this page.
+      if (custRes.status === "fulfilled" && custRes.value.ok) {
+        try {
+          const data = await custRes.value.json();
+          const leads: HistoryLead[] = Array.isArray(data.leads) ? data.leads : [];
+          setHistoryLeads(leads.filter((l) => l.id !== currentLeadId));
+        } catch {
+          setHistoryLeads([]);
+        }
+      } else {
+        setHistoryLeads([]);
+      }
+
+      // Past payments — the endpoint requires payments:view; treat a 403 as
+      // "not available to this role" rather than an error.
+      if (payRes.status === "fulfilled" && payRes.value.ok) {
+        try {
+          const data = await payRes.value.json();
+          setHistoryPayments(Array.isArray(data.payments) ? data.payments : []);
+          setHistoryPaymentsAvailable(true);
+        } catch {
+          setHistoryPayments([]);
+          setHistoryPaymentsAvailable(true);
+        }
+      } else {
+        setHistoryPayments([]);
+        setHistoryPaymentsAvailable(
+          !(payRes.status === "fulfilled" && payRes.value.status === 403),
+        );
+      }
+    } catch {
+      // Total failure — leave whatever we had; section shows empty states.
+      setHistoryLeads([]);
+      setHistoryPayments([]);
+    } finally {
+      setHistoryLoading(false);
+      setHistoryLoaded(true);
+    }
+  }, []);
+
+  // Load history once the lead (and therefore its customer id) is known.
+  React.useEffect(() => {
+    if (lead?.customer?.id && !historyLoaded && !historyLoading) {
+      fetchHistory(lead.customer.id, lead.id);
+    }
+  }, [lead, historyLoaded, historyLoading, fetchHistory]);
 
   // Fetch reference data
   React.useEffect(() => {
@@ -468,6 +604,128 @@ export default function LeadDetailPage() {
                 </Button>
               </div>
             </form>
+          </Card>
+
+          {/* Customer History — this customer's OTHER leads + past payments,
+              so the agent has full context while working the current lead.
+              All data is real (from /api/customers/[id] and /api/payments);
+              each source fails soft and shows a friendly empty state. */}
+          <Card>
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((v) => !v)}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                <History className="h-4 w-4 text-gray-400" />
+                Customer History
+                {historyLoaded && (
+                  <span className="text-xs font-normal text-gray-400">
+                    ({historyLeads.length} lead{historyLeads.length === 1 ? "" : "s"}
+                    {historyPaymentsAvailable ? `, ${historyPayments.length} payment${historyPayments.length === 1 ? "" : "s"}` : ""})
+                  </span>
+                )}
+              </span>
+              {historyOpen ? (
+                <ChevronUp className="h-4 w-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-gray-400" />
+              )}
+            </button>
+
+            {historyOpen && (
+              <div className="mt-4 space-y-6 border-t border-gray-200 pt-4">
+                {historyLoading ? (
+                  <div className="flex h-24 items-center justify-center">
+                    <Spinner size="md" />
+                  </div>
+                ) : (
+                  <>
+                    {/* Other leads */}
+                    <div>
+                      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Other Leads
+                      </h4>
+                      {historyLeads.length === 0 ? (
+                        <p className="text-sm text-gray-400">No previous leads.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {historyLeads.map((hl) => (
+                            <button
+                              key={hl.id}
+                              type="button"
+                              onClick={() => router.push(`/leads/${hl.id}`)}
+                              className="flex w-full items-center justify-between rounded-lg border border-gray-200 p-3 text-left transition-colors hover:border-primary-300 hover:bg-primary-50/40"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant={historyStageVariant(hl.stage.name)} size="sm">
+                                    {hl.stage.name}
+                                  </Badge>
+                                  <Badge variant="default" size="sm">
+                                    {hl.department.name}
+                                  </Badge>
+                                </div>
+                                {hl.destination && (
+                                  <p className="mt-1.5 truncate text-sm text-gray-700">{hl.destination}</p>
+                                )}
+                              </div>
+                              <span className="ml-3 flex shrink-0 items-center gap-1 text-xs text-gray-500">
+                                <Calendar className="h-3 w-3" />
+                                {formatHistoryDate(hl.createdAt)}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Past payments */}
+                    <div>
+                      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Past Payments
+                      </h4>
+                      {!historyPaymentsAvailable ? (
+                        <p className="text-sm text-gray-400">
+                          You don&apos;t have access to view payments.
+                        </p>
+                      ) : historyPayments.length === 0 ? (
+                        <p className="text-sm text-gray-400">No previous payments.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {historyPayments.map((p) => (
+                            <div
+                              key={p.id}
+                              className="flex items-center justify-between rounded-lg border border-gray-200 p-3"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <CreditCard className="h-4 w-4 shrink-0 text-gray-400" />
+                                  <span className="text-sm font-semibold text-gray-900">
+                                    {inr.format(p.amountPaise / 100)}
+                                  </span>
+                                  <Badge variant={paymentStatusVariant(p.status)} size="sm">
+                                    {p.status}
+                                  </Badge>
+                                </div>
+                                <p className="mt-1 truncate text-xs text-gray-500">
+                                  {p.tour
+                                    ? `${p.tour.name} (${p.tour.code})`
+                                    : p.lead?.destination || "General booking"}
+                                </p>
+                              </div>
+                              <span className="ml-3 shrink-0 text-xs text-gray-500">
+                                {formatHistoryDate(p.createdAt)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </Card>
         </div>
 

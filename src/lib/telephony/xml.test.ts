@@ -21,7 +21,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { renderIvrResponse } from "./xml";
+import {
+  renderIvrResponse,
+  renderLanguageMenu,
+  renderDepartmentMenu,
+  buildMenuPrompt,
+  type MenuOption,
+} from "./xml";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -257,5 +263,123 @@ describe("renderIvrResponse — empty / partial actions", () => {
     });
     expect(xml).not.toContain("recording");
     expect(xml).toContain("<Response>");
+  });
+});
+
+// ── DTMF gather (Phase 6j) ────────────────────────────────────────────────────
+
+const LANG_OPTS: MenuOption[] = [
+  { digit: "1", label: "English", value: "en-IN" },
+  { digit: "2", label: "Hindi", value: "hi-IN" },
+];
+const DEPT_OPTS: MenuOption[] = [
+  { digit: "1", label: "Sales", value: "dept-sales" },
+  { digit: "2", label: "Support", value: "dept-support" },
+];
+const ACTION_URL = "https://app.example.com/api/webhooks/voice/tok?ivr=lang";
+
+describe("buildMenuPrompt", () => {
+  it("composes intro + 'Press N for X' lines", () => {
+    expect(buildMenuPrompt("Select a language.", LANG_OPTS)).toBe(
+      "Select a language. Press 1 for English. Press 2 for Hindi.",
+    );
+  });
+
+  it("skips options missing digit or label", () => {
+    const prompt = buildMenuPrompt("Menu.", [
+      { digit: "1", label: "Sales" },
+      { digit: "", label: "Ignored" },
+      { digit: "3", label: "" },
+    ]);
+    expect(prompt).toBe("Menu. Press 1 for Sales.");
+  });
+});
+
+describe("renderIvrResponse — gather (DTMF) per provider", () => {
+  const gather = { prompt: "Press 1 for English. Press 2 for Hindi.", action: ACTION_URL };
+
+  it("Twilio wraps a <Say> in <Gather numDigits action method>", () => {
+    const xml = renderIvrResponse("TWILIO", { gather });
+    expect(xml).toContain('<Gather action="');
+    expect(xml).toContain('numDigits="1"');
+    expect(xml).toContain('method="POST"');
+    expect(xml).toContain('<Say voice="alice" language="en-IN">Press 1 for English. Press 2 for Hindi.</Say>');
+    expect(xml).toContain("</Gather>");
+  });
+
+  it("Exotel wraps a <Say voice='female'> in <Gather>", () => {
+    const xml = renderIvrResponse("EXOTEL", { gather });
+    expect(xml).toContain("<Gather ");
+    expect(xml).toContain('<Say voice="female">Press 1 for English. Press 2 for Hindi.</Say>');
+    expect(xml).toContain("</Gather>");
+  });
+
+  it("Plivo wraps a <Speak> in <GetDigits>", () => {
+    const xml = renderIvrResponse("PLIVO", { gather });
+    expect(xml).toContain("<GetDigits ");
+    expect(xml).toContain("<Speak>Press 1 for English. Press 2 for Hindi.</Speak>");
+    expect(xml).toContain("</GetDigits>");
+  });
+
+  it("FreJun wraps a <Speak> in <GetDigits> (Plivo-style)", () => {
+    const xml = renderIvrResponse("FREJUN", { gather });
+    expect(xml).toContain("<GetDigits ");
+    expect(xml).toContain("<Speak>Press 1 for English. Press 2 for Hindi.</Speak>");
+    expect(xml).toContain("</GetDigits>");
+  });
+
+  it("escapes the action URL and prompt (XML safety)", () => {
+    const xml = renderIvrResponse("TWILIO", {
+      gather: { prompt: "Choose <dept> & press", action: "https://x/y?a=1&b=2" },
+    });
+    expect(xml).toContain("a=1&amp;b=2");
+    expect(xml).toContain("Choose &lt;dept&gt; &amp; press");
+  });
+
+  it("honours custom numDigits and timeout", () => {
+    const xml = renderIvrResponse("PLIVO", {
+      gather: { prompt: "Enter code", action: ACTION_URL, numDigits: 4, timeout: 10 },
+    });
+    expect(xml).toContain('numDigits="4"');
+    expect(xml).toContain('timeout="10"');
+  });
+
+  it("skips gather when prompt is blank", () => {
+    const xml = parseXml(renderIvrResponse("TWILIO", { gather: { prompt: "  ", action: ACTION_URL } }));
+    expect(xml).toBe("<Response></Response>");
+  });
+});
+
+describe("renderLanguageMenu", () => {
+  it("emits a gather with each language option (Twilio)", () => {
+    const xml = renderLanguageMenu("TWILIO", LANG_OPTS, ACTION_URL);
+    expect(xml).toContain("<Gather ");
+    expect(xml).toContain("Please select your language.");
+    expect(xml).toContain("Press 1 for English.");
+    expect(xml).toContain("Press 2 for Hindi.");
+    expect(xml).toContain(`action="${ACTION_URL}"`);
+  });
+
+  it("supports a custom intro (Plivo)", () => {
+    const xml = renderLanguageMenu("PLIVO", LANG_OPTS, ACTION_URL, { intro: "Pick a language." });
+    expect(xml).toContain("<GetDigits ");
+    expect(xml).toContain("Pick a language. Press 1 for English. Press 2 for Hindi.");
+  });
+});
+
+describe("renderDepartmentMenu", () => {
+  it("emits a gather with each department option (Exotel)", () => {
+    const xml = renderDepartmentMenu("EXOTEL", DEPT_OPTS, ACTION_URL);
+    expect(xml).toContain("<Gather ");
+    expect(xml).toContain("Please choose a department.");
+    expect(xml).toContain("Press 1 for Sales.");
+    expect(xml).toContain("Press 2 for Support.");
+  });
+
+  it("emits a <GetDigits> menu for FreJun", () => {
+    const xml = renderDepartmentMenu("FREJUN", DEPT_OPTS, ACTION_URL);
+    expect(xml).toContain("<GetDigits ");
+    expect(xml).toContain("Press 1 for Sales.");
+    expect(xml).toContain("Press 2 for Support.");
   });
 });

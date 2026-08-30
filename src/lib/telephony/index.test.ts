@@ -229,18 +229,30 @@ describe("Adapter stub / error behaviour", () => {
     ).rejects.toThrow("telephonyApiKey must be a JSON string");
   });
 
-  it("placeCall throws NotImplementedError on PlivoAdapter", async () => {
+  it("PlivoAdapter.placeCall now makes a real REST call and returns a call id", async () => {
+    // Plivo placeCall is implemented (Phase 6n) — it POSTs to the Call API and
+    // normalises request_uuid → callSid. Mock fetch so no network is hit.
+    const fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ request_uuid: "plivo-uuid-1" }), { status: 201 }));
     const adapter = new PlivoAdapter("id", "token");
-    await expect(
-      adapter.placeCall({ from: "+91", to: "+91", webhookUrl: "https://x.com" }),
-    ).rejects.toBeInstanceOf(NotImplementedError);
+    const res = await adapter.placeCall({ from: "+91", to: "+91", webhookUrl: "https://x.com" });
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(JSON.stringify(res)).toContain("plivo-uuid-1");
+    fetchSpy.mockRestore();
   });
 
-  it("placeCall throws NotImplementedError on TwilioAdapter", async () => {
+  it("TwilioAdapter.placeCall now makes a real REST call and returns a call id", async () => {
+    // Twilio placeCall is implemented (Phase 6n) — it POSTs to Calls.json and
+    // returns the call sid. Mock fetch so no network is hit.
+    const fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ sid: "CA-twilio-1" }), { status: 201 }));
     const adapter = new TwilioAdapter("ACsid", "token");
-    await expect(
-      adapter.placeCall({ from: "+91", to: "+91", webhookUrl: "https://x.com" }),
-    ).rejects.toBeInstanceOf(NotImplementedError);
+    const res = await adapter.placeCall({ from: "+91", to: "+91", webhookUrl: "https://x.com" });
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(JSON.stringify(res)).toContain("CA-twilio-1");
+    fetchSpy.mockRestore();
   });
 
   it("ExotelAdapter.hangup throws when apiKey is not valid JSON", async () => {

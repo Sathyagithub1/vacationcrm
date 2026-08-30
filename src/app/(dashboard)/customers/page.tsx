@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Plus,
   Search,
@@ -77,14 +78,19 @@ function getStageVariant(stageName: string): "default" | "info" | "warning" | "s
   return "default";
 }
 
-export default function CustomersPage() {
+function CustomersInner() {
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+
+  // Initial query params (read once on mount for deep-linking)
+  const initialQ = searchParams.get("q") ?? "";
+  const initialCustomerId = searchParams.get("customerId");
 
   // List state
   const [customers, setCustomers] = React.useState<Customer[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const [debouncedQuery, setDebouncedQuery] = React.useState("");
+  const [searchQuery, setSearchQuery] = React.useState(initialQ);
+  const [debouncedQuery, setDebouncedQuery] = React.useState(initialQ);
   const [page, setPage] = React.useState(1);
   const [totalPages, setTotalPages] = React.useState(1);
   const [total, setTotal] = React.useState(0);
@@ -100,6 +106,19 @@ export default function CustomersPage() {
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [panelOpen, setPanelOpen] = React.useState(false);
 
+  // Keep the browser URL in sync with the current search + open customer,
+  // so the view is shareable/bookmarkable. Uses history.replaceState to avoid
+  // adding history entries or triggering a navigation/refetch.
+  const syncUrl = React.useCallback((q: string, customerId: string | null) => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (customerId) params.set("customerId", customerId);
+    const qs = params.toString();
+    const url = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+    window.history.replaceState(null, "", url);
+  }, []);
+
   // Debounce search
   React.useEffect(() => {
     const timer = setTimeout(() => {
@@ -109,49 +128,84 @@ export default function CustomersPage() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch customers
-  const fetchCustomers = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (debouncedQuery) params.set("q", debouncedQuery);
-      params.set("page", String(page));
-      params.set("limit", "20");
+  // Fetch customers. When `silent` is true, don't flip the full-screen loading
+  // spinner — keeps the list visible/live during background refreshes.
+  const fetchCustomers = React.useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      if (!silent) setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (debouncedQuery) params.set("q", debouncedQuery);
+        params.set("page", String(page));
+        params.set("limit", "20");
 
-      const res = await fetch(`/api/customers?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setCustomers(data.customers);
-      setTotal(data.total);
-      setTotalPages(data.totalPages);
-    } catch {
-      toast("error", "Failed to load customers");
-    } finally {
-      setLoading(false);
-    }
-  }, [debouncedQuery, page, toast]);
+        const res = await fetch(`/api/customers?${params}`);
+        if (!res.ok) throw new Error("Failed to fetch");
+        const data = await res.json();
+        setCustomers(data.customers);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+      } catch {
+        toast("error", "Failed to load customers");
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [debouncedQuery, page, toast]
+  );
 
   React.useEffect(() => {
     fetchCustomers();
   }, [fetchCustomers]);
 
-  // Open detail panel
-  async function openDetail(customer: Customer) {
-    setSelectedCustomer(customer);
-    setPanelOpen(true);
-    setDetailLoading(true);
-    try {
-      const res = await fetch(`/api/customers/${customer.id}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setSelectedCustomer(data.customer);
-      setCustomerLeads(data.leads);
-    } catch {
-      toast("error", "Failed to load customer details");
-    } finally {
-      setDetailLoading(false);
-    }
+  // Keep the URL's ?q in sync whenever the debounced search changes.
+  React.useEffect(() => {
+    syncUrl(debouncedQuery, selectedCustomer && panelOpen ? selectedCustomer.id : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery]);
+
+  // Fetch a customer's details by id and populate the detail panel.
+  const loadDetailById = React.useCallback(
+    async (id: string, seed?: Customer) => {
+      if (seed) setSelectedCustomer(seed);
+      setPanelOpen(true);
+      setDetailLoading(true);
+      try {
+        const res = await fetch(`/api/customers/${id}`);
+        if (!res.ok) throw new Error("Failed to fetch");
+        const data = await res.json();
+        setSelectedCustomer(data.customer);
+        setCustomerLeads(data.leads);
+      } catch {
+        toast("error", "Failed to load customer details");
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [toast]
+  );
+
+  // Open detail panel for a customer (from the list) — the panel is an overlay,
+  // so this never blanks the underlying list.
+  function openDetail(customer: Customer) {
+    syncUrl(debouncedQuery, customer.id);
+    loadDetailById(customer.id, customer);
   }
+
+  // Close detail panel and drop customerId from the URL.
+  function closeDetail() {
+    setPanelOpen(false);
+    syncUrl(debouncedQuery, null);
+  }
+
+  // On mount: if ?customerId is present, auto-open that customer's detail panel.
+  React.useEffect(() => {
+    if (initialCustomerId) {
+      loadDetailById(initialCustomerId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Create customer
   async function handleSubmit(e: React.FormEvent) {
@@ -178,10 +232,21 @@ export default function CustomersPage() {
         throw new Error(data.error || "Failed to create customer");
       }
 
+      const created = await res.json();
+      const newCustomer: Customer | null = created?.customer ?? null;
+
       toast("success", "Customer created");
       setModalOpen(false);
       setForm(emptyForm);
-      fetchCustomers();
+
+      // Optimistically show the new customer at the top of the list (only when
+      // viewing page 1 with no active search, so the row is actually in scope),
+      // then reconcile with a silent background refetch — no full-screen spinner.
+      if (newCustomer && page === 1 && !debouncedQuery) {
+        setCustomers((prev) => [newCustomer, ...prev]);
+        setTotal((t) => t + 1);
+      }
+      fetchCustomers({ silent: true });
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to create customer");
     } finally {
@@ -391,13 +456,13 @@ export default function CustomersPage() {
       {/* Customer Detail Slide-out Panel */}
       {panelOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setPanelOpen(false)} />
+          <div className="fixed inset-0 bg-black/50" onClick={closeDetail} />
           <div className="relative z-10 flex h-full w-full max-w-lg flex-col bg-white shadow-xl">
             {/* Panel header */}
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <h2 className="text-lg font-semibold text-gray-900">Customer Details</h2>
               <button
-                onClick={() => setPanelOpen(false)}
+                onClick={closeDetail}
                 className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
               >
                 <X className="h-5 w-5" />
@@ -518,5 +583,19 @@ export default function CustomersPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CustomersPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="flex h-64 items-center justify-center">
+          <Spinner size="lg" />
+        </div>
+      }
+    >
+      <CustomersInner />
+    </React.Suspense>
   );
 }

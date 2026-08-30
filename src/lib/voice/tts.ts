@@ -14,12 +14,14 @@
  *
  * Audio delivery:
  *   Google returns audio as base64-encoded MP3 in `audioContent`.
- *   The bytes are written to `public/tts/<uuid>.mp3` and the relative URL
- *   `/tts/<uuid>.mp3` is returned.  The telephony provider fetches this URL
- *   from the same server to play the audio.
+ *   The bytes are persisted via the pluggable audio-storage backend
+ *   (see ./audio-storage). By default this writes `public/tts/<uuid>.mp3` and
+ *   returns the relative URL `/tts/<uuid>.mp3`; the telephony provider fetches
+ *   this URL from the same server to play the audio.
  *
- *   NOTE: This approach assumes the app is served from a single host.  In
- *   distributed/serverless deployments, replace with an S3/GCS pre-signed URL.
+ *   For distributed/multi-replica deployments, set TTS_STORAGE=s3 (with
+ *   @aws-sdk/client-s3 installed) so audio lands in shared object storage.
+ *   Local files are TTL-cleaned via audio-storage.cleanupTtsAudio().
  *
  * Fail-soft:
  *   Any provider error is caught, logged with tenantId, and returns a stub
@@ -34,12 +36,10 @@
  *   tenant.ttsApiKey   — encrypted Google Cloud API key
  */
 
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
-import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { decryptIfEncrypted } from "@/lib/crypto/credential-encryption";
 import { toGoogleLangCode } from "./lang-codes";
+import { saveTtsAudio } from "./audio-storage";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -93,16 +93,12 @@ async function synthesizeWithGoogle(
     throw new Error("[TTS/Google] Response missing audioContent");
   }
 
-  // Decode base64 MP3 and write to public/tts/<uuid>.mp3
+  // Decode base64 MP3 and persist via the pluggable audio-storage backend
+  // (local disk by default; S3 when TTS_STORAGE=s3). Returns a playable URL.
   const audioBuffer = Buffer.from(data.audioContent, "base64");
-  const fileName = `${randomUUID()}.mp3`;
-  const ttsDir = join(process.cwd(), "public", "tts");
+  const audioUrl = await saveTtsAudio(audioBuffer, "mp3");
 
-  // Ensure directory exists (no-op if already present)
-  await mkdir(ttsDir, { recursive: true });
-  await writeFile(join(ttsDir, fileName), audioBuffer);
-
-  return { audioUrl: `/tts/${fileName}` };
+  return { audioUrl };
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
