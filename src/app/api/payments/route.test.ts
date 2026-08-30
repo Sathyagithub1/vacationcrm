@@ -29,10 +29,11 @@ vi.mock("@/lib/razorpay", () => ({
 }));
 
 // ── Prisma mock ───────────────────────────────────────────────────────────────
-const { mockPaymentCreate, mockPaymentFindMany, mockPaymentCount, mockCustomerFindFirst, mockTenantFindUnique } = vi.hoisted(() => ({
+const { mockPaymentCreate, mockPaymentFindMany, mockPaymentCount, mockPaymentGroupBy, mockCustomerFindFirst, mockTenantFindUnique } = vi.hoisted(() => ({
   mockPaymentCreate: vi.fn(),
   mockPaymentFindMany: vi.fn(),
   mockPaymentCount: vi.fn(),
+  mockPaymentGroupBy: vi.fn(),
   mockCustomerFindFirst: vi.fn(),
   mockTenantFindUnique: vi.fn(),
 }));
@@ -53,6 +54,7 @@ function makeDbMock(overrides: Record<string, unknown> = {}) {
       create: mockPaymentCreate,
       findMany: mockPaymentFindMany,
       count: mockPaymentCount,
+      groupBy: mockPaymentGroupBy,
     },
     customer: { findFirst: mockCustomerFindFirst },
     ...overrides,
@@ -156,6 +158,10 @@ describe("GET /api/payments", () => {
       { id: "p2", status: "CREATED", amountPaise: 20000 },
     ]);
     mockPaymentCount.mockResolvedValue(2);
+    mockPaymentGroupBy.mockResolvedValue([
+      { status: "CAPTURED", _sum: { amountPaise: 50000 }, _count: { _all: 1 } },
+      { status: "CREATED", _sum: { amountPaise: 20000 }, _count: { _all: 1 } },
+    ]);
 
     const req = new NextRequest("http://localhost/api/payments?page=1&limit=20");
     const res = await GET(req);
@@ -172,6 +178,9 @@ describe("GET /api/payments", () => {
 
     mockPaymentFindMany.mockResolvedValue([{ id: "p1", status: "CAPTURED" }]);
     mockPaymentCount.mockResolvedValue(1);
+    mockPaymentGroupBy.mockResolvedValue([
+      { status: "CAPTURED", _sum: { amountPaise: 50000 }, _count: { _all: 1 } },
+    ]);
 
     const req = new NextRequest("http://localhost/api/payments?status=CAPTURED");
     const res = await GET(req);
@@ -185,5 +194,36 @@ describe("GET /api/payments", () => {
         where: expect.objectContaining({ status: "CAPTURED" }),
       }),
     );
+    // Summary spans all statuses regardless of the table's status filter,
+    // so groupBy must NOT receive the status filter.
+    expect(mockPaymentGroupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.not.objectContaining({ status: "CAPTURED" }),
+      }),
+    );
+  });
+
+  it("computes a revenue summary from grouped statuses", async () => {
+    makeMockSession();
+
+    mockPaymentFindMany.mockResolvedValue([]);
+    mockPaymentCount.mockResolvedValue(0);
+    mockPaymentGroupBy.mockResolvedValue([
+      { status: "CAPTURED", _sum: { amountPaise: 100000 }, _count: { _all: 3 } },
+      { status: "REFUNDED", _sum: { amountPaise: 25000 }, _count: { _all: 1 } },
+      { status: "REFUND_PENDING", _sum: { amountPaise: 10000 }, _count: { _all: 1 } },
+    ]);
+
+    const req = new NextRequest("http://localhost/api/payments");
+    const res = await GET(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.summary.capturedPaise).toBe(100000);
+    expect(json.summary.refundedPaise).toBe(25000);
+    expect(json.summary.refundPendingPaise).toBe(10000);
+    // Net = captured − refunded
+    expect(json.summary.netPaise).toBe(75000);
+    expect(json.summary.totalCount).toBe(5);
   });
 });

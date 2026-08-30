@@ -18,7 +18,6 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  requireAuth,
   requirePermission,
   unauthorized,
   forbidden,
@@ -158,7 +157,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, db } = await requireAuth();
+    const { db } = await requirePermission("payments:view");
 
     const { searchParams } = request.nextUrl;
     const status = searchParams.get("status") ?? undefined;
@@ -181,7 +180,20 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    const [payments, total] = await Promise.all([
+    // Summary reflects the active date window (if any) but spans all statuses,
+    // so the stat cards always show the full revenue picture regardless of the
+    // status filter applied to the table below.
+    const summaryWhere: Record<string, unknown> = {};
+    if (customerId) summaryWhere.customerId = customerId;
+    if (leadId) summaryWhere.leadId = leadId;
+    if (dateFrom || dateTo) {
+      summaryWhere.createdAt = {
+        ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+        ...(dateTo ? { lte: new Date(dateTo) } : {}),
+      };
+    }
+
+    const [payments, total, grouped] = await Promise.all([
       (db.payment.findMany as Function)({
         where,
         orderBy: { createdAt: "desc" },
@@ -195,16 +207,47 @@ export async function GET(request: NextRequest) {
         },
       }),
       (db.payment.count as Function)({ where }),
+      (db.payment.groupBy as Function)({
+        by: ["status"],
+        where: summaryWhere,
+        _sum: { amountPaise: true },
+        _count: { _all: true },
+      }),
     ]);
+
+    // Reduce the per-status groups into headline figures (all in paise).
+    type Group = { status: string; _sum: { amountPaise: number | null }; _count: { _all: number } };
+    const byStatus = (grouped as Group[]).reduce<Record<string, { paise: number; count: number }>>(
+      (acc, g) => {
+        acc[g.status] = { paise: g._sum.amountPaise ?? 0, count: g._count._all };
+        return acc;
+      },
+      {},
+    );
+    const summary = {
+      capturedPaise: byStatus.CAPTURED?.paise ?? 0,
+      capturedCount: byStatus.CAPTURED?.count ?? 0,
+      refundedPaise: byStatus.REFUNDED?.paise ?? 0,
+      refundedCount: byStatus.REFUNDED?.count ?? 0,
+      refundPendingPaise: byStatus.REFUND_PENDING?.paise ?? 0,
+      refundPendingCount: byStatus.REFUND_PENDING?.count ?? 0,
+      // Net collected = captured minus what has been fully refunded.
+      netPaise: (byStatus.CAPTURED?.paise ?? 0) - (byStatus.REFUNDED?.paise ?? 0),
+      totalCount: (grouped as Group[]).reduce((n, g) => n + g._count._all, 0),
+    };
 
     return NextResponse.json({
       payments,
       total,
       page,
       totalPages: Math.ceil(total / limit),
+      summary,
     });
   } catch (err) {
-    if (err instanceof Error && err.message === "Unauthorized") return unauthorized();
+    if (err instanceof Error) {
+      if (err.message === "Unauthorized") return unauthorized();
+      if (err.message === "Forbidden") return forbidden();
+    }
     console.error("GET /api/payments error:", err);
     return NextResponse.json({ error: "Failed to fetch payments" }, { status: 500 });
   }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -84,13 +85,10 @@ function resolveThemeColor(config: WidgetConfig | null): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function WidgetChatPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | undefined>;
-}) {
-  const tenant = searchParams.tenant ?? "";
-  const dept = searchParams.dept ?? "";
+function WidgetChatInner() {
+  const searchParams = useSearchParams();
+  const tenant = searchParams.get("tenant") ?? "";
+  const dept = searchParams.get("dept") ?? "";
 
   const [config, setConfig] = useState<WidgetConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -643,5 +641,28 @@ export default function WidgetChatPage({
         }
       `}</style>
     </div>
+  );
+}
+
+export default function WidgetChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100vh",
+            color: "#6B7280",
+            fontSize: 14,
+          }}
+        >
+          Loading...
+        </div>
+      }
+    >
+      <WidgetChatInner />
+    </Suspense>
   );
 }

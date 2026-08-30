@@ -12,7 +12,7 @@
  *   4. The Razorpay webhook (refund.processed) will later flip to REFUNDED
  *      and cancel the TourBooking if one exists.
  *
- * Auth: requires "settings:integrations" permission (admin/dept-manager only)
+ * Auth: requires "payments:refund" permission (SUPER_ADMIN / COMPANY_ADMIN)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -27,7 +27,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const { user, db } = await requirePermission("settings:integrations");
+    const { user, db } = await requirePermission("payments:refund");
     const { id } = await context.params;
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;

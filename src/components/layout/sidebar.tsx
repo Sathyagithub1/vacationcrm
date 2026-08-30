@@ -11,6 +11,7 @@ import {
   UserCircle,
   Megaphone,
   BarChart3,
+  CreditCard,
   UserCog,
   Settings,
   X,
@@ -110,6 +111,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     { icon: Phone, label: "Callbacks", href: "/callbacks", permission: "callbacks:view" },
     { icon: Building2, label: "Departments", href: "/departments", permission: "departments:manage" },
     { icon: UserCircle, label: "Customers", href: "/customers", permission: "customers:view" },
+    { icon: CreditCard, label: "Payments", href: "/payments", permission: "payments:view" },
     { icon: Megaphone, label: "Broadcasts", href: "/broadcasts", permission: "broadcasts:send" },
     { icon: BarChart3, label: "Reports", href: "/reports", permission: "reports:view" },
   ];

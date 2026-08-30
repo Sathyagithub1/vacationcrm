@@ -13,12 +13,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  requireAuth,
   requirePermission,
   unauthorized,
   forbidden,
 } from "@/modules/auth/tenant.middleware";
-import { refundPayment } from "@/lib/razorpay";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -26,7 +24,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
-    const { db } = await requireAuth();
+    const { db } = await requirePermission("payments:view");
     const { id } = await context.params;
 
     const payment = await (db.payment.findFirst as Function)({
@@ -52,7 +50,10 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ payment });
   } catch (err) {
-    if (err instanceof Error && err.message === "Unauthorized") return unauthorized();
+    if (err instanceof Error) {
+      if (err.message === "Unauthorized") return unauthorized();
+      if (err.message === "Forbidden") return forbidden();
+    }
     console.error("GET /api/payments/:id error:", err);
     return NextResponse.json({ error: "Failed to fetch payment" }, { status: 500 });
   }

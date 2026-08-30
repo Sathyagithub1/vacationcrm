@@ -1,3 +1,43 @@
+# TODO_BLOCKERS — Phase 6j (Payments UI)
+
+---
+
+## Phase 6j — Payments dashboard + refund UI (2026-08-30)
+
+Closes the orphaned refund API from Phase 6i: the race-guarded
+`POST /api/payments/:id/refund` and `GET /api/payments` existed but **no UI
+called them** — payments could be taken (TakePaymentButton) but never viewed
+or refunded. Also fixes a real Next.js 16 runtime bug in the chat widget.
+
+### Landed
+- **New `/payments` dashboard page** — list + status filter + real revenue
+  summary cards (Net Collected / Captured / Refunded / Refund Pending) + a
+  detail slide-out with a status timeline and a permission-gated refund flow
+  (full or partial). Wired into the sidebar (CreditCard icon).
+- **New RBAC permissions** `payments:view` (all roles) and `payments:refund`
+  (SUPER_ADMIN / COMPANY_ADMIN only). Refund route switched from the
+  semantically-wrong `settings:integrations` gate to `payments:refund`
+  (behaviour-preserving — same role set). `GET /api/payments` and
+  `GET /api/payments/:id` now `requirePermission("payments:view")` instead of
+  bare `requireAuth()`.
+- **`GET /api/payments` now returns a tenant-wide `summary`** via `groupBy`
+  (captured/refunded/refund-pending paise + counts, net collected). Spans all
+  statuses regardless of the table's status filter. Grounded in real data —
+  no fabricated numbers.
+- **Widget chat runtime fix** — `src/app/(widget)/widget/chat/page.tsx` was a
+  `"use client"` page reading `searchParams` synchronously as a prop; under
+  Next 16 `searchParams` is a Promise, so `tenant`/`dept` were always
+  `undefined` → widget dead. Switched to `useSearchParams()` inside a
+  `Suspense` boundary. This also unblocks the local `next build --webpack`.
+
+### Verified
+- `tsc --noEmit` clean; `next build --webpack` exit 0 (106/106 pages);
+  `payments/route.test.ts` 8/8 passing (incl. new summary computation test).
+- NOT yet click-tested on live — needs deploy to vacaycrm.app (backup-first)
+  to exercise the real refund round-trip against Razorpay.
+
+---
+
 # TODO_BLOCKERS — Phase 6f (Integrations)
 
 ---

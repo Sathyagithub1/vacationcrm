@@ -27,6 +27,8 @@ export type Permission =
   | "callbacks:create"
   | "departments:manage"
   | "customers:view"
+  | "payments:view"
+  | "payments:refund"
   | "broadcasts:send"
   | "reports:view"
   | "users:manage"
