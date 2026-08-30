@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { Spinner } from "@/components/ui/loading";
+import { TestConnectionButton } from "@/components/settings/test-connection-button";
 import {
   Mail,
   MessageSquare,
@@ -395,6 +396,11 @@ export default function IntegrationsSettingsPage() {
             placeholder="noreply@yourdomain.com"
           />
         </div>
+        <TestConnectionButton
+          provider="smtp"
+          disabled={!smtpHost}
+          disabledHint="Save host, username & password first."
+        />
       </div>
 
       {/* ── SMS Gateway ──────────────────────────────────────────────────── */}
@@ -530,6 +536,11 @@ export default function IntegrationsSettingsPage() {
             </button>
           </div>
         </div>
+        <TestConnectionButton
+          provider="razorpay"
+          disabled={!razorpayKeyId}
+          disabledHint="Save a Key ID and Key Secret first."
+        />
       </div>
 
       {/* ── Telephony (Phase 6d) ─────────────────────────────────────────── */}
@@ -702,6 +713,11 @@ export default function IntegrationsSettingsPage() {
             </div>
           )}
         </div>
+        <TestConnectionButton
+          provider="telephony"
+          disabled={!telephonyConfigured}
+          disabledHint="Save telephony credentials first."
+        />
       </div>
 
       {/* ── STT (Phase 6d) ───────────────────────────────────────────────── */}
@@ -747,6 +763,11 @@ export default function IntegrationsSettingsPage() {
             </button>
           </div>
         </div>
+        <TestConnectionButton
+          provider="stt"
+          disabled={!sttApiKey || !isMasked(sttApiKey)}
+          disabledHint="Save an API key first."
+        />
       </div>
 
       {/* ── TTS (Phase 6d) ───────────────────────────────────────────────── */}
@@ -792,6 +813,11 @@ export default function IntegrationsSettingsPage() {
             </button>
           </div>
         </div>
+        <TestConnectionButton
+          provider="tts"
+          disabled={!ttsApiKey || !isMasked(ttsApiKey)}
+          disabledHint="Save an API key first."
+        />
       </div>
 
       {/* ── Save ─────────────────────────────────────────────────────────── */}

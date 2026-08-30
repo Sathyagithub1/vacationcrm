@@ -1,3 +1,36 @@
+# TODO_BLOCKERS — Phase 6k (Integration test-connection)
+
+---
+
+## Phase 6k — "Test connection" buttons (2026-08-30)
+
+Lets an operator verify saved integration credentials against the REAL provider
+before relying on them (composes with the no-broken-untested rule + unblocks
+the 6j refund click-test by proving Razorpay creds are live).
+
+### Landed
+- **New `POST /api/integrations/test`** (`requirePermission("settings:integrations")`)
+  — validates the tenant's STORED (decrypted in-memory) credentials with a safe,
+  read-only / no-side-effect call per provider:
+  - `razorpay` → `GET /v1/orders?count=1` (HTTP Basic) → 200 valid / 401 rejected; reports test-vs-live mode.
+  - `smtp` → nodemailer `transporter.verify()` (connect + AUTH, sends nothing).
+  - `telephony` → Exotel account GET / FreJun authed GET (401/403 = bad creds).
+  - `stt` / `tts` → minimal Google Cloud REST call to validate the API key.
+  - 10s timeout per external call; never returns or logs secrets.
+- **`TestConnectionButton`** component + wired into 5 sections of
+  Settings → Integrations (Razorpay, SMTP, Telephony, STT, TTS). Shows live
+  green/red result inline. Disabled with a hint until creds are saved.
+  SMS/WhatsApp deliberately have NO button — there is no standard test call, so
+  a button there would be misleading (no fake green).
+
+### Verified
+- `tsc` clean; `next build --webpack` exit 0 (107 pages);
+  `integrations/test/route.test.ts` 12/12 (auth, razorpay 200/401/unconfigured,
+  smtp verify pass/fail/unconfigured, exotel 200/401, google tts 200 / stt invalid-key).
+- NOT yet exercised against a REAL provider live — needs deploy + real creds.
+
+---
+
 # TODO_BLOCKERS — Phase 6j (Payments UI)
 
 ---
