@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { hasPermission } from "@/modules/auth/rbac";
 import { buildThemeConfig } from "@/modules/white-label/theme.service";
 import { logAudit } from "@/modules/audit/audit.service";
 import { encryptCredential } from "@/lib/crypto/credential-encryption";
+import { provisionTenant, slugify } from "@/lib/tenant-provisioning";
 import type { Permission } from "@/types";
 
 const MASK = "••••••••";
@@ -317,5 +319,120 @@ export async function PUT(request: Request) {
     }
     console.error("[Tenants] Update error:", error);
     return NextResponse.json({ error: "Failed to update tenant" }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/tenants — Public self-service tenant signup (multi-tenant SaaS).
+ *
+ * DEFAULT-OFF GUARANTEE:
+ *   Returns 403 unless SIGNUP_ENABLED === "true". In the default deployment
+ *   (flag unset) this endpoint is a hard 403 and no tenant can be created via
+ *   the web, so the live single-tenant app is untouched.
+ *
+ * When enabled, creates a new tenant + its first COMPANY_ADMIN user + default
+ * departments / pipeline stages / follow-up rules TRANSACTIONALLY. Password is
+ * bcrypt-hashed (cost 12) like the rest of the app; email is lowercased so it
+ * matches auth-options' login lookup. Duplicate slug/email → 409. This handler
+ * NEVER touches any other tenant's data.
+ */
+export async function POST(request: Request) {
+  // Flag gate — closed by default.
+  if (process.env.SIGNUP_ENABLED !== "true") {
+    return NextResponse.json({ error: "Signups are currently closed" }, { status: 403 });
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const companyName = typeof body.companyName === "string" ? body.companyName.trim() : "";
+  const adminName = typeof body.adminName === "string" ? body.adminName.trim() : "";
+  const rawEmail = typeof body.email === "string" ? body.email.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+
+  // ── Validation ──────────────────────────────────────────────────────────
+  if (!companyName || companyName.length < 2) {
+    return NextResponse.json({ error: "companyName is required (min 2 chars)" }, { status: 400 });
+  }
+  if (!adminName || adminName.length < 2) {
+    return NextResponse.json({ error: "adminName is required (min 2 chars)" }, { status: 400 });
+  }
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail);
+  if (!emailOk) {
+    return NextResponse.json({ error: "A valid email is required" }, { status: 400 });
+  }
+  if (typeof password !== "string" || password.length < 8) {
+    return NextResponse.json({ error: "password must be at least 8 characters" }, { status: 400 });
+  }
+
+  const email = rawEmail.toLowerCase();
+  const slug = slugify(companyName);
+  if (!slug) {
+    return NextResponse.json({ error: "companyName must contain letters or numbers" }, { status: 400 });
+  }
+
+  try {
+    // Cheap pre-checks for a friendly 409 (the transaction's unique constraints
+    // are the real guard against races — we still catch P2002 below).
+    const [slugTaken, emailTaken] = await Promise.all([
+      prisma.tenant.findUnique({ where: { slug }, select: { id: true } }),
+      prisma.user.findFirst({ where: { email }, select: { id: true } }),
+    ]);
+    if (slugTaken) {
+      return NextResponse.json({ error: "A workspace with this name already exists" }, { status: 409 });
+    }
+    if (emailTaken) {
+      return NextResponse.json({ error: "An account with this email already exists" }, { status: 409 });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // Atomic: tenant + admin + departments + stages + rules, or nothing.
+    // The extended client's interactive-tx type is structurally a
+    // Prisma.TransactionClient for the delegates we use; cast to bridge the
+    // tour-sold `$extends` wrapper's narrower callback type.
+    const result = await prisma.$transaction(async (tx) =>
+      provisionTenant(tx as unknown as Parameters<typeof provisionTenant>[0], {
+        companyName,
+        slug,
+        adminName,
+        adminEmail: email,
+        adminPasswordHash: passwordHash,
+      }),
+    );
+
+    // Best-effort audit (never blocks signup success).
+    await logAudit({
+      tenantId: result.tenantId,
+      userId: result.adminUserId,
+      action: "tenant.signup",
+      entityType: "Tenant",
+      entityId: result.tenantId,
+      newValue: { companyName, slug: result.slug, adminEmail: email },
+    }).catch(() => {});
+
+    return NextResponse.json(
+      { tenant: { id: result.tenantId, slug: result.slug }, ok: true },
+      { status: 201 },
+    );
+  } catch (error) {
+    // Prisma unique-constraint violation (race on slug/email) → 409.
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      return NextResponse.json(
+        { error: "A workspace or account with these details already exists" },
+        { status: 409 },
+      );
+    }
+    console.error("[Tenants] Signup error:", error);
+    return NextResponse.json({ error: "Failed to create workspace" }, { status: 500 });
   }
 }

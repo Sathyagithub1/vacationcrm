@@ -338,6 +338,9 @@ model Tenant {
   currency             String             @default("INR") @map("currency")
   address              String?            @map("address")
   subscriptionStatus   SubscriptionStatus @default(ACTIVE) @map("subscription_status")
+  // Multi-tenant SaaS: plan tier for quota/billing (nullable = no plan = free/unlimited).
+  // Additive + optional — when unset the app behaves exactly as before (no enforcement).
+  plan                 String?            @map("plan")
   intakeToken          String             @unique @default(cuid()) @map("intake_token")
   googleFormsKey       String?            @unique @map("google_forms_key")
   featureFlags         Json               @default("{}") @map("feature_flags")

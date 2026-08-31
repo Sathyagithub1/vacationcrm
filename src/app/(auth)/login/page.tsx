@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,8 +12,10 @@ import {
   type PublicTenantBranding,
 } from "@/lib/tenant-branding";
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const signupSuccess = searchParams?.get("signup") === "success";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -70,6 +72,12 @@ export default function LoginPage() {
         </p>
       </div>
 
+      {signupSuccess && (
+        <div className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-700">
+          Workspace created! Please sign in with your new admin account.
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label="Email"
@@ -112,5 +120,13 @@ export default function LoginPage() {
         </Button>
       </form>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
   );
 }
