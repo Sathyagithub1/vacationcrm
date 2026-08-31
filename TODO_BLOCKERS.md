@@ -1,3 +1,49 @@
+# TODO_BLOCKERS — Backlog build waves 6n–6q (2026-08-30)
+
+Parallel-agent build of the full deferred backlog (§3 UI, §4 voice/telephony,
+§5 multi-tenant). All verified locally: `tsc` clean, `next build --webpack`
+(111 pages), mock test suites green. DB-integration tests only run on the VPS
+(no local Postgres — expected).
+
+## §7 — STALE ENTRIES NOW RESOLVED (do not action the older sections below)
+The pre-6i sections further down contain historical statuses that are DONE:
+- "Status: PENDING — requires DATABASE_URL / live DB access" (6c/6d migrations,
+  scoring-weights, etc.) → migrations were baselined + applied on prod at the
+  Phase 6f deploy (`_prisma_migrations` established). NOT pending.
+- 6C "encryption DEFERRED" → AES-256-GCM credential encryption shipped in
+  Phase 6e/6g (`src/lib/crypto/credential-encryption.ts`). NOT deferred.
+Kept below for history only.
+
+## 6n — telephony/voice completeness + customer UX (DONE, undeployed)
+- Plivo + Twilio real placeCall/hangup. Voice audio-storage (S3-ready env, 24h
+  TTL cleanup) + STT 10MiB guard. IVR DTMF language+department menu.
+- Customers page silent-refresh + ?customerId/?q deep-links. Lead-detail
+  Customer History (other leads + past payments, real APIs).
+- Follow-up: a worker/cron must call cleanupTtsAudio() for local-disk TTS.
+
+## 6o — conversation actions, agent dashboard, widget capture, phone dedupe (DONE, undeployed)
+- Conversation callback chips + /command launcher. AGENT default dashboard
+  widgets. Widget pre-chat capture gate + consent (themeOverride JSON, no
+  schema). Phone-identity dedupe on POST /api/customers (reuse, never delete).
+- Note: /command is a launcher button, not in-textarea detection (shared
+  ChatInput was out of scope).
+
+## 6p — onboarding checklist + skill tags on users (DONE, undeployed)
+- Onboarding go-live checklist (admins; real signals; localStorage dismiss).
+- Skill tags: NO migration — User.tags/languages/assignmentTier + SKILL_BASED
+  strategy already existed; exposed the editor in users API + UI.
+
+## 6q — multi-tenant SaaS, FLAG-GATED OFF (DONE, undeployed)
+- Signup (POST /api/tenants + /signup), host middleware, Stripe env-gated
+  billing stub, read-only /api/admin/tenants. Additive migration Tenant.plan.
+- OFF by default = prod behavior identical. To go live LATER (needs decision):
+  set SIGNUP_ENABLED / MULTI_TENANT_SUBDOMAINS / STRIPE_SECRET_KEY + DNS.
+- Still OPEN: SUPER_ADMIN live tenant-switcher (auth-session risk); subdomain
+  resolution unproven at runtime; Stripe checkout on-path (needs keys);
+  rename middleware.ts → proxy.ts (Next 16 deprecation, warning only).
+
+---
+
 # TODO_BLOCKERS — Phase 6m (Tour bulk import)
 
 ---
