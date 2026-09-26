@@ -1,0 +1,7 @@
+# Large media stays out of git; the wiki page records where it lives.
+raw/assets/**/*.mp3
+raw/assets/**/*.mp4
+raw/assets/**/*.m4a
+raw/assets/**/*.wav
+raw/assets/**/*.mov
+raw/assets/**/*.zip
