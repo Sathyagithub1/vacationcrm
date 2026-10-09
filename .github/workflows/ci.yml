@@ -12,9 +12,50 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
 jobs:
-  ci:
-    name: Lint, build, test
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install (frozen lockfile)
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Obviously-fake placeholders for CI only. Not real secrets.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_placeholder
+      REDIS_URL: redis://localhost:6379
+      NEXTAUTH_SECRET: ci-placeholder-not-a-real-secret-0000000000
+      NEXTAUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install (frozen lockfile)
+        run: npm ci
+      - name: Prisma generate
+        run: npx prisma generate
+      - name: Build (includes Next.js type check)
+        run: npm run build
+
+  test:
+    name: Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -46,40 +87,26 @@ jobs:
           --health-retries 10
 
     env:
-      # Obviously-fake placeholders for CI only. Not real secrets.
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/holiday_delight_crm_ci
       DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/holiday_delight_crm_ci
       REDIS_URL: redis://localhost:6379
       REDIS_URL_TEST: redis://localhost:6379
       NEXTAUTH_SECRET: ci-placeholder-not-a-real-secret-0000000000
       NEXTAUTH_URL: http://localhost:3000
-      NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-
       - name: Install (frozen lockfile)
         run: npm ci
-
       - name: Prisma generate
         run: npx prisma generate
-
       - name: Apply migrations to ephemeral CI database
         run: npx prisma migrate deploy
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Build (includes Next.js type check)
-        run: npm run build
-
-      - name: Unit/integration tests (node, offline, mocked AI providers)
+      - name: Unit/integration tests (node env, AI providers mocked, offline)
         run: npm test
-
       - name: UI component tests (jsdom)
         run: npm run test:ui
