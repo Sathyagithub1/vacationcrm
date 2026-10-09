@@ -105,7 +105,8 @@ export default function VoiceCallsPage() {
   const [total, setTotal] = React.useState(0);
   const [page, setPage] = React.useState(1);
   const [totalPages, setTotalPages] = React.useState(1);
-  const [loading, setLoading] = React.useState(false);
+  // The list fetch starts on mount, so the spinner is shown from the first render.
+  const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
   // Filters
@@ -119,31 +120,48 @@ export default function VoiceCallsPage() {
   const [expandedDetail, setExpandedDetail] = React.useState<VoiceCallDetail | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
 
-  const fetchCalls = React.useCallback(async (p = 1) => {
+  // Reset loading/error whenever the filters change (render-phase adjustment
+  // instead of synchronous setState inside the fetch effect).
+  const filterKey = `${statusFilter}|${languageFilter}|${dateFrom}|${dateTo}`;
+  const [lastFilterKey, setLastFilterKey] = React.useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
     setLoading(true);
     setError(null);
-    try {
-      const params = new URLSearchParams({ page: String(p), limit: "20" });
-      if (statusFilter) params.set("status", statusFilter);
-      if (languageFilter) params.set("language", languageFilter);
-      if (dateFrom) params.set("dateFrom", dateFrom);
-      if (dateTo) params.set("dateTo", dateTo);
+  }
 
-      const res = await fetch(`/api/voice-calls?${params.toString()}`);
-      if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
-      const data = (await res.json()) as ListResponse;
-      setCalls(data.voiceCalls);
-      setTotal(data.total);
-      setPage(data.page);
-      setTotalPages(data.totalPages);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load voice calls");
-    } finally {
-      setLoading(false);
-    }
+  // Callers outside the effect go through reloadCalls (which resets loading/error first).
+  const fetchCalls = React.useCallback((p = 1) => {
+    const params = new URLSearchParams({ page: String(p), limit: "20" });
+    if (statusFilter) params.set("status", statusFilter);
+    if (languageFilter) params.set("language", languageFilter);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+
+    return fetch(`/api/voice-calls?${params.toString()}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
+        const data = (await res.json()) as ListResponse;
+        setCalls(data.voiceCalls);
+        setTotal(data.total);
+        setPage(data.page);
+        setTotalPages(data.totalPages);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load voice calls");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [statusFilter, languageFilter, dateFrom, dateTo]);
 
   React.useEffect(() => { void fetchCalls(1); }, [fetchCalls]);
+
+  const reloadCalls = (p: number) => {
+    setLoading(true);
+    setError(null);
+    return fetchCalls(p);
+  };
 
   const toggleExpand = async (callId: string) => {
     if (expandedId === callId) {
@@ -179,7 +197,7 @@ export default function VoiceCallsPage() {
           </p>
         </div>
         <button
-          onClick={() => void fetchCalls(page)}
+          onClick={() => void reloadCalls(page)}
           className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
         >
           <RefreshCw className="h-3.5 w-3.5" />
@@ -374,7 +392,7 @@ export default function VoiceCallsPage() {
           <div className="flex gap-2">
             <button
               disabled={page <= 1}
-              onClick={() => void fetchCalls(page - 1)}
+              onClick={() => void reloadCalls(page - 1)}
               className="rounded border border-gray-200 px-3 py-1 disabled:opacity-40 hover:bg-gray-50"
             >
               Previous
@@ -384,7 +402,7 @@ export default function VoiceCallsPage() {
             </span>
             <button
               disabled={page >= totalPages}
-              onClick={() => void fetchCalls(page + 1)}
+              onClick={() => void reloadCalls(page + 1)}
               className="rounded border border-gray-200 px-3 py-1 disabled:opacity-40 hover:bg-gray-50"
             >
               Next

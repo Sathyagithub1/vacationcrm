@@ -7,7 +7,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
 import { Spinner } from "@/components/ui/loading";
-import { Eye, EyeOff, Brain, Trash2, Plus } from "lucide-react";
+import { Eye, EyeOff, Brain, Trash2 } from "lucide-react";
 
 interface AiProviderRow {
   id: string;

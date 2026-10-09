@@ -79,6 +79,69 @@ interface AgentPerfResponse {
   rows?: Array<{ converted?: number }>;
 }
 
+async function fetchAgentStats(): Promise<AgentStats> {
+  // /api/leads, /api/follow-ups and /api/callbacks all hard-scope to the
+  // requesting agent server-side (role === "AGENT" ⇒ assignedTo = user.id),
+  // so no client-side id filtering is needed.
+  const [leads, followUps, callbacks, agentPerf] = await Promise.all([
+    safeJson<LeadsResponse>("/api/leads?limit=1"),
+    safeJson<FollowUpsResponse>("/api/follow-ups?status=PENDING&limit=1"),
+    safeJson<CallbacksResponse>("/api/callbacks?status=SCHEDULED&limit=100"),
+    safeJson<AgentPerfResponse>(
+      `/api/reports?type=agent-performance&dateFrom=${firstOfMonthISO()}&dateTo=${todayISO()}`
+    ),
+  ]);
+
+  // ── Open leads ────────────────────────────────────────────────────────
+  // The agent's active book = every lead assigned to them (same real count
+  // the sidebar "Leads" badge shows). `total` comes straight from the DB
+  // count on the RBAC-scoped query.
+  let openLeads: Stat = null;
+  if (leads && typeof leads.total === "number") {
+    openLeads = leads.total;
+  }
+
+  // ── Pending follow-ups ────────────────────────────────────────────────
+  let pendingFollowUps: Stat = null;
+  if (followUps && typeof followUps.total === "number") {
+    pendingFollowUps = followUps.total;
+  }
+
+  // ── Callbacks due today ───────────────────────────────────────────────
+  let callbacksToday: Stat = null;
+  if (callbacks && Array.isArray(callbacks.callbacks)) {
+    const from = startOfToday().getTime();
+    const to = endOfToday().getTime();
+    callbacksToday = callbacks.callbacks.filter((c) => {
+      const t = c?.preferredTime ? new Date(c.preferredTime).getTime() : NaN;
+      return !Number.isNaN(t) && t >= from && t <= to;
+    }).length;
+  }
+
+  // ── Conversions this month ────────────────────────────────────────────
+  // agent-performance auto-scopes to this agent (one row). `converted` is the
+  // count of the agent's leads currently in a converted stage created within
+  // the date window.
+  let conversionsThisMonth: Stat = null;
+  if (agentPerf && Array.isArray(agentPerf.rows)) {
+    const row = agentPerf.rows[0];
+    if (row && typeof row.converted === "number") {
+      conversionsThisMonth = row.converted;
+    } else if (agentPerf.rows.length === 0) {
+      // No lead activity this month yet — a real, honest zero.
+      conversionsThisMonth = 0;
+    }
+  }
+
+  return {
+    openLeads,
+    pendingFollowUps,
+    callbacksToday,
+    conversionsThisMonth,
+    loading: false,
+  };
+}
+
 export function AgentDefaultWidgets() {
   const [stats, setStats] = React.useState<AgentStats>({
     openLeads: null,
@@ -88,68 +151,9 @@ export function AgentDefaultWidgets() {
     loading: true,
   });
 
-  const load = React.useCallback(async () => {
-    // /api/leads, /api/follow-ups and /api/callbacks all hard-scope to the
-    // requesting agent server-side (role === "AGENT" ⇒ assignedTo = user.id),
-    // so no client-side id filtering is needed.
-    const [leads, followUps, callbacks, agentPerf] = await Promise.all([
-      safeJson<LeadsResponse>("/api/leads?limit=1"),
-      safeJson<FollowUpsResponse>("/api/follow-ups?status=PENDING&limit=1"),
-      safeJson<CallbacksResponse>("/api/callbacks?status=SCHEDULED&limit=100"),
-      safeJson<AgentPerfResponse>(
-        `/api/reports?type=agent-performance&dateFrom=${firstOfMonthISO()}&dateTo=${todayISO()}`
-      ),
-    ]);
-
-    // ── Open leads ────────────────────────────────────────────────────────
-    // The agent's active book = every lead assigned to them (same real count
-    // the sidebar "Leads" badge shows). `total` comes straight from the DB
-    // count on the RBAC-scoped query.
-    let openLeads: Stat = null;
-    if (leads && typeof leads.total === "number") {
-      openLeads = leads.total;
-    }
-
-    // ── Pending follow-ups ────────────────────────────────────────────────
-    let pendingFollowUps: Stat = null;
-    if (followUps && typeof followUps.total === "number") {
-      pendingFollowUps = followUps.total;
-    }
-
-    // ── Callbacks due today ───────────────────────────────────────────────
-    let callbacksToday: Stat = null;
-    if (callbacks && Array.isArray(callbacks.callbacks)) {
-      const from = startOfToday().getTime();
-      const to = endOfToday().getTime();
-      callbacksToday = callbacks.callbacks.filter((c) => {
-        const t = c?.preferredTime ? new Date(c.preferredTime).getTime() : NaN;
-        return !Number.isNaN(t) && t >= from && t <= to;
-      }).length;
-    }
-
-    // ── Conversions this month ────────────────────────────────────────────
-    // agent-performance auto-scopes to this agent (one row). `converted` is the
-    // count of the agent's leads currently in a converted stage created within
-    // the date window.
-    let conversionsThisMonth: Stat = null;
-    if (agentPerf && Array.isArray(agentPerf.rows)) {
-      const row = agentPerf.rows[0];
-      if (row && typeof row.converted === "number") {
-        conversionsThisMonth = row.converted;
-      } else if (agentPerf.rows.length === 0) {
-        // No lead activity this month yet — a real, honest zero.
-        conversionsThisMonth = 0;
-      }
-    }
-
-    setStats({
-      openLeads,
-      pendingFollowUps,
-      callbacksToday,
-      conversionsThisMonth,
-      loading: false,
-    });
-  }, []);
+  // All state updates happen in the promise callback (fetchAgentStats never rejects:
+  // every request goes through safeJson, which resolves to null on failure).
+  const load = React.useCallback(() => fetchAgentStats().then((next) => setStats(next)), []);
 
   React.useEffect(() => {
     load();

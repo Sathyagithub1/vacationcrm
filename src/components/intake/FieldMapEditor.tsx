@@ -17,7 +17,6 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/loading";
 import { useToast } from "@/components/ui/toast";
 import { RefreshCw } from "lucide-react";
 

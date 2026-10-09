@@ -3,7 +3,6 @@
 import { Phone, Mail, MapPin, Building2, Tag, Calendar, Users as UsersIcon } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 
 interface CustomerInfoPanelProps {
   conversation: {

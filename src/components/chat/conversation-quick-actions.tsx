@@ -169,10 +169,14 @@ export function ConversationQuickActions({
     );
   }, [allCommands, query]);
 
-  // Keep the highlighted row valid as the filter changes.
-  React.useEffect(() => {
+  // Keep the highlighted row valid as the filter changes (reset during render
+  // when the query or open state changes).
+  const highlightKey = `${menuOpen}|${query}`;
+  const [lastHighlightKey, setLastHighlightKey] = React.useState(highlightKey);
+  if (highlightKey !== lastHighlightKey) {
+    setLastHighlightKey(highlightKey);
     setActiveIndex(0);
-  }, [query, menuOpen]);
+  }
 
   // Focus the search field when the menu opens.
   React.useEffect(() => {

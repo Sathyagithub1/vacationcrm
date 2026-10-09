@@ -7,7 +7,6 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  AlertCircle,
   FileText,
   Mail,
   MessageSquare,
@@ -61,10 +60,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
   FAILED: { label: "Failed", color: "bg-red-100 text-red-700", icon: XCircle },
 };
 
-function getChannelIcon(channel: string) {
-  const ch = CHANNELS.find((c) => c.key === channel);
-  return ch ? ch.icon : Mail;
-}
+const CHANNEL_ICONS: Record<string, React.ElementType> = Object.fromEntries(
+  CHANNELS.map((c) => [c.key, c.icon])
+);
 
 // ─── Create/Edit Form ─────────────────────────────────────────────────────
 function BroadcastForm({
@@ -294,23 +292,29 @@ function BroadcastDetail({
   const [loading, setLoading] = React.useState(true);
   const [sending, setSending] = React.useState(false);
 
-  async function fetchDetail() {
-    try {
-      const res = await fetch(`/api/broadcasts/${broadcastId}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setBroadcast(data.broadcast);
-      setRecipientStats(data.recipientStats || { pending: 0, delivered: 0, failed: 0 });
-    } catch {
-      toast("error", "Failed to load broadcast");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const fetchDetail = React.useCallback(
+    () =>
+      fetch(`/api/broadcasts/${broadcastId}`)
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed to fetch");
+          return res.json();
+        })
+        .then((data) => {
+          setBroadcast(data.broadcast);
+          setRecipientStats(data.recipientStats || { pending: 0, delivered: 0, failed: 0 });
+        })
+        .catch(() => {
+          toast("error", "Failed to load broadcast");
+        })
+        .finally(() => {
+          setLoading(false);
+        }),
+    [broadcastId, toast]
+  );
 
   React.useEffect(() => {
     fetchDetail();
-  }, [broadcastId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchDetail]);
 
   async function handleSend() {
     if (!confirm("Send this broadcast now? This cannot be undone.")) return;
@@ -350,7 +354,7 @@ function BroadcastDetail({
     );
   }
 
-  const ChannelIcon = getChannelIcon(broadcast.channel);
+  const ChannelIcon = CHANNEL_ICONS[broadcast.channel] ?? Mail;
   const statusCfg = STATUS_CONFIG[broadcast.status] || STATUS_CONFIG.DRAFT;
   const StatusIcon = statusCfg.icon;
 
@@ -435,26 +439,30 @@ export default function BroadcastsPage() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [statusFilter, setStatusFilter] = React.useState("");
 
-  async function fetchBroadcasts() {
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: "20" });
-      if (statusFilter) params.set("status", statusFilter);
+  const fetchBroadcasts = React.useCallback(() => {
+    const params = new URLSearchParams({ page: String(page), limit: "20" });
+    if (statusFilter) params.set("status", statusFilter);
 
-      const res = await fetch(`/api/broadcasts?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setBroadcasts(data.broadcasts);
-      setTotalPages(data.totalPages);
-    } catch {
-      toast("error", "Failed to load broadcasts");
-    } finally {
-      setLoading(false);
-    }
-  }
+    return fetch(`/api/broadcasts?${params}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setBroadcasts(data.broadcasts);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => {
+        toast("error", "Failed to load broadcasts");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [page, statusFilter, toast]);
 
   React.useEffect(() => {
     fetchBroadcasts();
-  }, [page, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchBroadcasts]);
 
   if (view === "create") {
     return (
@@ -533,7 +541,7 @@ export default function BroadcastsPage() {
           {broadcasts.map((b) => {
             const statusCfg = STATUS_CONFIG[b.status] || STATUS_CONFIG.DRAFT;
             const StatusIcon = statusCfg.icon;
-            const ChannelIcon = getChannelIcon(b.channel);
+            const ChannelIcon = CHANNEL_ICONS[b.channel] ?? Mail;
 
             return (
               <button

@@ -98,18 +98,24 @@ export default function DepartmentsPage() {
   const [form, setForm] = React.useState(emptyForm);
   const [saving, setSaving] = React.useState(false);
 
-  const fetchDepartments = React.useCallback(async () => {
-    try {
-      const res = await fetch("/api/departments");
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setDepartments(data.departments);
-    } catch {
-      toast("error", "Failed to load departments");
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+  const fetchDepartments = React.useCallback(
+    () =>
+      fetch("/api/departments")
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed to fetch");
+          return res.json();
+        })
+        .then((data) => {
+          setDepartments(data.departments);
+        })
+        .catch(() => {
+          toast("error", "Failed to load departments");
+        })
+        .finally(() => {
+          setLoading(false);
+        }),
+    [toast]
+  );
 
   React.useEffect(() => {
     fetchDepartments();

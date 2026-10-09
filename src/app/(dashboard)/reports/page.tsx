@@ -27,43 +27,55 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  // The report fetch starts on mount, so the spinner is shown from the first render.
+  const [loading, setLoading] = useState(true);
 
-  const fetchDepartments = useCallback(async () => {
-    try {
-      const res = await fetch("/api/departments");
-      if (res.ok) {
-        const json = await res.json();
-        setDepartments(json.departments || []);
-      }
-    } catch {
-      // silently fail
-    }
+  // Show the spinner whenever the report inputs change (render-phase adjustment
+  // instead of a synchronous setLoading(true) inside the fetch effect).
+  const reportKey = `${activeTab}|${departmentId}|${dateFrom}|${dateTo}`;
+  const [lastReportKey, setLastReportKey] = useState(reportKey);
+  if (reportKey !== lastReportKey) {
+    setLastReportKey(reportKey);
+    setLoading(true);
+  }
+
+  const fetchDepartments = useCallback(() => {
+    return fetch("/api/departments")
+      .then(async (res) => {
+        if (res.ok) {
+          const json = await res.json();
+          setDepartments(json.departments || []);
+        }
+      })
+      .catch(() => {
+        // silently fail
+      });
   }, []);
 
   useEffect(() => {
     fetchDepartments();
   }, [fetchDepartments]);
 
-  const fetchReport = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ type: activeTab });
-      if (departmentId) params.set("departmentId", departmentId);
-      if (dateFrom) params.set("dateFrom", dateFrom);
-      if (dateTo) params.set("dateTo", dateTo);
+  const fetchReport = useCallback(() => {
+    const params = new URLSearchParams({ type: activeTab });
+    if (departmentId) params.set("departmentId", departmentId);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
 
-      const res = await fetch(`/api/reports?${params}`);
-      if (res.ok) {
-        setData(await res.json());
-      } else {
+    return fetch(`/api/reports?${params}`)
+      .then(async (res) => {
+        if (res.ok) {
+          setData(await res.json());
+        } else {
+          setData(null);
+        }
+      })
+      .catch(() => {
         setData(null);
-      }
-    } catch {
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [activeTab, departmentId, dateFrom, dateTo]);
 
   useEffect(() => {

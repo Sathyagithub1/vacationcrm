@@ -96,6 +96,19 @@ async function fetchSignals(): Promise<{
   return { razorpay, smtp, department, tour, payment };
 }
 
+function readStoredDismissed(): boolean {
+  try {
+    return localStorage.getItem(DISMISS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// The dismiss flag is only read, never observed for cross-tab changes.
+function subscribeNoop(): () => void {
+  return () => {};
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function OnboardingChecklist() {
@@ -104,18 +117,18 @@ export function OnboardingChecklist() {
   const isAdmin = ADMIN_ROLES.includes(role);
 
   const [steps, setSteps] = React.useState<Step[] | null>(null);
-  const [dismissed, setDismissed] = React.useState(true); // assume hidden until we check
-  const [mounted, setMounted] = React.useState(false);
 
-  // Read the client-side dismiss flag once mounted (avoids SSR/localStorage mismatch).
-  React.useEffect(() => {
-    setMounted(true);
-    try {
-      setDismissed(localStorage.getItem(DISMISS_KEY) === "1");
-    } catch {
-      setDismissed(false);
-    }
-  }, []);
+  // Read the client-side dismiss flag once mounted (avoids SSR/localStorage mismatch):
+  // the server snapshot is null (not mounted yet → assume hidden), the client
+  // snapshot is the stored flag.
+  const storedDismissed = React.useSyncExternalStore<boolean | null>(
+    subscribeNoop,
+    readStoredDismissed,
+    () => null
+  );
+  const mounted = storedDismissed !== null;
+  const [dismissedByUser, setDismissed] = React.useState(false);
+  const dismissed = storedDismissed !== false || dismissedByUser;
 
   // Fetch the live signals only for admins who haven't dismissed.
   React.useEffect(() => {

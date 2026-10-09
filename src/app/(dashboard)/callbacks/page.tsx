@@ -6,11 +6,9 @@ import {
   Phone,
   CheckCircle,
   XCircle,
-  Clock,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
 import { Spinner } from "@/components/ui/loading";
 import { useToast } from "@/components/ui/toast";
@@ -85,27 +83,38 @@ export default function CallbacksPage() {
     fetchDepts();
   }, []);
 
-  // Fetch callbacks
-  const fetchCallbacks = React.useCallback(async () => {
+  // Show the spinner whenever the page or filters change (adjust state during render).
+  const fetchKey = `${page}|${filterStatus}|${filterDept}`;
+  const [lastFetchKey, setLastFetchKey] = React.useState(fetchKey);
+  if (fetchKey !== lastFetchKey) {
+    setLastFetchKey(fetchKey);
     setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("page", String(page));
-      params.set("limit", "20");
-      if (filterStatus) params.set("status", filterStatus);
-      if (filterDept) params.set("departmentId", filterDept);
+  }
 
-      const res = await fetch(`/api/callbacks?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setCallbacks(data.callbacks);
-      setTotal(data.total);
-      setTotalPages(data.totalPages);
-    } catch {
-      toast("error", "Failed to load callbacks");
-    } finally {
-      setLoading(false);
-    }
+  // Fetch callbacks
+  const fetchCallbacks = React.useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("limit", "20");
+    if (filterStatus) params.set("status", filterStatus);
+    if (filterDept) params.set("departmentId", filterDept);
+
+    return fetch(`/api/callbacks?${params}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setCallbacks(data.callbacks);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => {
+        toast("error", "Failed to load callbacks");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [page, filterStatus, filterDept, toast]);
 
   React.useEffect(() => {
@@ -125,6 +134,7 @@ export default function CallbacksPage() {
         throw new Error(data.error || "Failed");
       }
       toast("success", action === "complete" ? "Callback marked complete" : "Callback marked missed");
+      setLoading(true);
       fetchCallbacks();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed");

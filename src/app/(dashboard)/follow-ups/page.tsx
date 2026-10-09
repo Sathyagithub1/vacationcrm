@@ -9,7 +9,6 @@ import {
   RotateCcw,
   UserPlus,
   XCircle,
-  Search,
   Sparkles,
   ThumbsUp,
 } from "lucide-react";
@@ -145,49 +144,68 @@ export default function FollowUpsPage() {
     fetchAgents();
   }, []);
 
-  // Fetch follow-ups
-  const fetchFollowUps = React.useCallback(async () => {
+  // Show the spinner whenever the page or filters change (adjust state during render).
+  const fetchKey = `${page}|${filterType}|${filterStatus}|${filterAgent}`;
+  const [lastFetchKey, setLastFetchKey] = React.useState(fetchKey);
+  if (fetchKey !== lastFetchKey) {
+    setLastFetchKey(fetchKey);
     setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("page", String(page));
-      params.set("limit", "20");
-      if (filterType) params.set("type", filterType);
-      if (filterStatus) params.set("status", filterStatus);
-      if (filterAgent) params.set("assignedTo", filterAgent);
+  }
 
-      const res = await fetch(`/api/follow-ups?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setFollowUps(data.followUps);
-      setTotal(data.total);
-      setTotalPages(data.totalPages);
-    } catch {
-      toast("error", "Failed to load follow-ups");
-    } finally {
-      setLoading(false);
-    }
+  // Fetch follow-ups (callers set loading=true beforehand)
+  const fetchFollowUps = React.useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("limit", "20");
+    if (filterType) params.set("type", filterType);
+    if (filterStatus) params.set("status", filterStatus);
+    if (filterAgent) params.set("assignedTo", filterAgent);
+
+    return fetch(`/api/follow-ups?${params}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setFollowUps(data.followUps);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => {
+        toast("error", "Failed to load follow-ups");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [page, filterType, filterStatus, filterAgent, toast]);
 
   React.useEffect(() => {
     fetchFollowUps();
   }, [fetchFollowUps]);
 
+  // Show the suggestions spinner when switching to that tab (adjust state during render).
+  const [lastTab, setLastTab] = React.useState(activeTab);
+  if (activeTab !== lastTab) {
+    setLastTab(activeTab);
+    if (activeTab === "suggested") setLoadingSuggestions(true);
+  }
+
   // Fetch suggested follow-ups when switching to that tab
-  const fetchSuggestions = React.useCallback(async () => {
-    setLoadingSuggestions(true);
-    try {
-      const res = await fetch("/api/follow-ups/suggestions");
-      if (res.ok) {
-        const data = await res.json();
-        setSuggestions(data.suggestions || []);
-      }
-    } catch {
-      // Non-critical
-    } finally {
-      setLoadingSuggestions(false);
-    }
-  }, []);
+  const fetchSuggestions = React.useCallback(
+    () =>
+      fetch("/api/follow-ups/suggestions")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data) setSuggestions(data.suggestions || []);
+        })
+        .catch(() => {
+          // Non-critical
+        })
+        .finally(() => {
+          setLoadingSuggestions(false);
+        }),
+    []
+  );
 
   React.useEffect(() => {
     if (activeTab === "suggested") {
@@ -218,6 +236,7 @@ export default function FollowUpsPage() {
       // Remove from suggestions
       setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
       // Refresh the queue too
+      setLoading(true);
       fetchFollowUps();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to approve");
@@ -239,6 +258,7 @@ export default function FollowUpsPage() {
         throw new Error(data.error || "Failed");
       }
       toast("success", "Follow-up marked complete");
+      setLoading(true);
       fetchFollowUps();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed");
@@ -261,6 +281,7 @@ export default function FollowUpsPage() {
       toast("success", "Follow-up snoozed");
       setSnoozeTarget(null);
       setSnoozeDate("");
+      setLoading(true);
       fetchFollowUps();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed");
@@ -285,6 +306,7 @@ export default function FollowUpsPage() {
       toast("success", "Follow-up reassigned");
       setReassignTarget(null);
       setReassignTo("");
+      setLoading(true);
       fetchFollowUps();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed");
@@ -306,6 +328,7 @@ export default function FollowUpsPage() {
         throw new Error(data.error || "Failed");
       }
       toast("success", "Follow-up cancelled");
+      setLoading(true);
       fetchFollowUps();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed");

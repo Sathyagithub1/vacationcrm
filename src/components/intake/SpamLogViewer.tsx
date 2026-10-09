@@ -61,7 +61,8 @@ const RULE_TYPE_BADGE: Record<string, "danger" | "warning" | "info" | "default">
 const PAGE_SIZE = 25;
 
 export function SpamLogViewer() {
-  const [loading,    setLoading]    = React.useState(false);
+  // Starts true: the initial fetch is kicked off on mount.
+  const [loading,    setLoading]    = React.useState(true);
   const [logs,       setLogs]       = React.useState<SpamLog[]>([]);
   const [total,      setTotal]      = React.useState(0);
   const [page,       setPage]       = React.useState(1);
@@ -72,30 +73,39 @@ export function SpamLogViewer() {
   const [dateFrom,  setDateFrom]  = React.useState("");
   const [dateTo,    setDateTo]    = React.useState("");
 
-  async function fetchLogs(p: number) {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        page:  String(p),
-        limit: String(PAGE_SIZE),
-      });
-      if (channel)  params.set("channel",  channel);
-      if (dateFrom) params.set("dateFrom", dateFrom);
-      if (dateTo)   params.set("dateTo",   dateTo);
+  // All state updates live in promise callbacks; callers set `loading` first.
+  function fetchLogs(p: number) {
+    const params = new URLSearchParams({
+      page:  String(p),
+      limit: String(PAGE_SIZE),
+    });
+    if (channel)  params.set("channel",  channel);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo)   params.set("dateTo",   dateTo);
 
-      const res = await fetch(`/api/spam-logs?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to load spam logs");
-      const data: ApiResponse = await res.json();
-      setLogs(data.logs);
-      setTotal(data.total);
-      setPage(data.page);
-      setTotalPages(data.totalPages);
-    } catch {
-      // Error handled silently; UI shows empty state
-      setLogs([]);
-    } finally {
-      setLoading(false);
-    }
+    return fetch(`/api/spam-logs?${params.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load spam logs");
+        return res.json() as Promise<ApiResponse>;
+      })
+      .then((data) => {
+        setLogs(data.logs);
+        setTotal(data.total);
+        setPage(data.page);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => {
+        // Error handled silently; UI shows empty state
+        setLogs([]);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
+
+  function loadPage(p: number) {
+    setLoading(true);
+    fetchLogs(p);
   }
 
   React.useEffect(() => {
@@ -104,7 +114,7 @@ export function SpamLogViewer() {
   }, []);
 
   function handleSearch() {
-    fetchLogs(1);
+    loadPage(1);
   }
 
   return (
@@ -193,7 +203,7 @@ export function SpamLogViewer() {
           <Pagination
             currentPage={page}
             totalPages={totalPages}
-            onPageChange={(p) => fetchLogs(p)}
+            onPageChange={(p) => loadPage(p)}
           />
         </div>
       )}

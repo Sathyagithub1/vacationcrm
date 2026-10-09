@@ -97,17 +97,21 @@ function FollowUpRulesSection({
   const [saving, setSaving] = React.useState(false);
   const [togglingId, setTogglingId] = React.useState<string | null>(null);
 
-  const fetchRules = React.useCallback(async () => {
-    try {
-      const res = await fetch("/api/follow-up-rules");
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setRules(data.rules);
-    } catch {
-      toast("error", "Failed to load follow-up rules");
-    } finally {
-      setLoading(false);
-    }
+  const fetchRules = React.useCallback(() => {
+    return fetch("/api/follow-up-rules")
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setRules(data.rules);
+      })
+      .catch(() => {
+        toast("error", "Failed to load follow-up rules");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [toast]);
 
   React.useEffect(() => {
@@ -479,28 +483,33 @@ export default function PipelineSettingsPage() {
   const dragItem = React.useRef<number | null>(null);
   const dragOverItem = React.useRef<number | null>(null);
 
-  const fetchStages = React.useCallback(async () => {
-    try {
-      const res = await fetch("/api/pipeline-stages");
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setStages(data.stages);
-    } catch {
-      toast("error", "Failed to load pipeline stages");
-    } finally {
-      setLoading(false);
-    }
+  const fetchStages = React.useCallback(() => {
+    return fetch("/api/pipeline-stages")
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setStages(data.stages);
+      })
+      .catch(() => {
+        toast("error", "Failed to load pipeline stages");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [toast]);
 
-  const fetchDepartments = React.useCallback(async () => {
-    try {
-      const res = await fetch("/api/departments");
-      if (!res.ok) return;
-      const data = await res.json();
-      setDepartments(data.departments.filter((d: Department & { isActive: boolean }) => d.isActive !== false));
-    } catch {
-      // non-critical
-    }
+  const fetchDepartments = React.useCallback(() => {
+    return fetch("/api/departments")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json();
+        setDepartments(data.departments.filter((d: Department & { isActive: boolean }) => d.isActive !== false));
+      })
+      .catch(() => {
+        // non-critical
+      });
   }, []);
 
   React.useEffect(() => {

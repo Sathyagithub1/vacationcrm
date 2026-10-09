@@ -57,21 +57,29 @@ export default function IntakeFormsListPage() {
   const [toggling, setToggling]     = React.useState<string | null>(null);
   const [replaying, setReplaying]   = React.useState<string | null>(null);
 
-  async function fetchForms(p: number) {
+  // `loading` starts true for the mount fetch; other callers must
+  // setLoading(true) before invoking (see reloadForms).
+  function fetchForms(p: number) {
+    return fetch(`/api/intake-forms?page=${p}&limit=${PAGE_SIZE}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to load intake forms");
+        const data: ApiResponse = await res.json();
+        setForms(data.forms);
+        setTotal(data.total);
+        setPage(data.page);
+        setTotalPages(data.totalPages);
+      })
+      .catch((err) => {
+        toast("error", err instanceof Error ? err.message : "Failed to load intake forms");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
+
+  function reloadForms(p: number) {
     setLoading(true);
-    try {
-      const res = await fetch(`/api/intake-forms?page=${p}&limit=${PAGE_SIZE}`);
-      if (!res.ok) throw new Error("Failed to load intake forms");
-      const data: ApiResponse = await res.json();
-      setForms(data.forms);
-      setTotal(data.total);
-      setPage(data.page);
-      setTotalPages(data.totalPages);
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to load intake forms");
-    } finally {
-      setLoading(false);
-    }
+    return fetchForms(p);
   }
 
   React.useEffect(() => {
@@ -93,7 +101,7 @@ export default function IntakeFormsListPage() {
         throw new Error(data.error ?? "Failed to update status");
       }
       toast("success", `Form ${nextStatus === "ACTIVE" ? "activated" : "paused"}`);
-      await fetchForms(page);
+      await reloadForms(page);
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to update status");
     } finally {
@@ -237,7 +245,7 @@ export default function IntakeFormsListPage() {
           <Pagination
             currentPage={page}
             totalPages={totalPages}
-            onPageChange={(p) => fetchForms(p)}
+            onPageChange={(p) => reloadForms(p)}
           />
         </div>
       )}

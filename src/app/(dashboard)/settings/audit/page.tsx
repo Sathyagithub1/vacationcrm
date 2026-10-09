@@ -102,34 +102,43 @@ export default function AuditLogPage() {
       .catch(() => {});
   }, []);
 
-  const fetchEntries = React.useCallback(async () => {
+  // Show the spinner whenever page/filters change (render-phase adjustment
+  // instead of a synchronous setLoading(true) inside the fetch effect).
+  const fetchKey = `${page}|${userFilter}|${actionFilter}|${entityTypeFilter}|${dateFrom}|${dateTo}`;
+  const [lastFetchKey, setLastFetchKey] = React.useState(fetchKey);
+  if (fetchKey !== lastFetchKey) {
+    setLastFetchKey(fetchKey);
     setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("page", String(page));
-      params.set("limit", "25");
-      if (userFilter) params.set("userId", userFilter);
-      if (actionFilter) params.set("action", actionFilter);
-      if (entityTypeFilter) params.set("entityType", entityTypeFilter);
-      if (dateFrom) params.set("dateFrom", dateFrom);
-      if (dateTo) params.set("dateTo", dateTo);
+  }
 
-      const res = await fetch(`/api/audit-log?${params.toString()}`);
-      if (res.status === 403) {
+  const fetchEntries = React.useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("limit", "25");
+    if (userFilter) params.set("userId", userFilter);
+    if (actionFilter) params.set("action", actionFilter);
+    if (entityTypeFilter) params.set("entityType", entityTypeFilter);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+
+    return fetch(`/api/audit-log?${params.toString()}`)
+      .then(async (res) => {
+        if (res.status === 403) {
+          setEntries([]);
+          return;
+        }
+        if (!res.ok) throw new Error("Failed to fetch");
+        const data = await res.json();
+        setEntries(data.entries || []);
+        setTotalPages(data.totalPages || 1);
+        setTotal(data.total || 0);
+      })
+      .catch(() => {
         setEntries([]);
+      })
+      .finally(() => {
         setLoading(false);
-        return;
-      }
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setEntries(data.entries || []);
-      setTotalPages(data.totalPages || 1);
-      setTotal(data.total || 0);
-    } catch {
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
+      });
   }, [page, userFilter, actionFilter, entityTypeFilter, dateFrom, dateTo]);
 
   React.useEffect(() => {

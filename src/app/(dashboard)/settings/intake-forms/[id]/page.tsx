@@ -70,39 +70,53 @@ export default function IntakeFormDetailPage() {
   const [deptId,     setDeptId]     = React.useState("");
   const [tagsInput,  setTagsInput]  = React.useState("");
 
-  async function loadAll() {
+  // Show the spinner when the route id changes (render-phase adjustment
+  // instead of a synchronous setLoading(true) inside the fetch effect).
+  const [loadedId, setLoadedId] = React.useState(id);
+  if (id !== loadedId) {
+    setLoadedId(id);
     setLoading(true);
-    try {
-      const [formRes, fieldRes, deptRes] = await Promise.all([
-        fetch(`/api/intake-forms/${id}`),
-        fetch(`/api/intake-forms/${id}/field-map`),
-        fetch("/api/departments?limit=100"),
-      ]);
+  }
 
-      if (!formRes.ok) throw new Error("Intake form not found");
+  // Callers outside the effect must setLoading(true) before invoking.
+  function loadAll() {
+    return Promise.all([
+      fetch(`/api/intake-forms/${id}`),
+      fetch(`/api/intake-forms/${id}/field-map`),
+      fetch("/api/departments?limit=100"),
+    ])
+      .then(async ([formRes, fieldRes, deptRes]) => {
+        if (!formRes.ok) throw new Error("Intake form not found");
 
-      const formData: { form: IntakeFormDetail } = await formRes.json();
-      const fm: FieldMapData = fieldRes.ok ? await fieldRes.json() : { fieldMap: {}, confirmed: false, sample: null, sampleAt: null };
-      const deptData: { departments?: Department[] } = deptRes.ok ? await deptRes.json() : {};
+        const formData: { form: IntakeFormDetail } = await formRes.json();
+        const fm: FieldMapData = fieldRes.ok ? await fieldRes.json() : { fieldMap: {}, confirmed: false, sample: null, sampleAt: null };
+        const deptData: { departments?: Department[] } = deptRes.ok ? await deptRes.json() : {};
 
-      setForm(formData.form);
-      setName(formData.form.name);
-      setDeptId(formData.form.departmentId ?? "");
-      setTagsInput((formData.form.defaultTags ?? []).join(", "));
-      setFieldMapData(fm);
-      setDepts(deptData.departments ?? []);
+        setForm(formData.form);
+        setName(formData.form.name);
+        setDeptId(formData.form.departmentId ?? "");
+        setTagsInput((formData.form.defaultTags ?? []).join(", "));
+        setFieldMapData(fm);
+        setDepts(deptData.departments ?? []);
 
-      // Fetch recent logs (last 10)
-      const logsRes = await fetch(`/api/intake-forms/${id}?includeRecentLogs=true`);
-      if (logsRes.ok) {
-        const logsData: { recentLogs?: RecentLog[] } = await logsRes.json();
-        setRecentLogs(logsData.recentLogs ?? []);
-      }
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to load form");
-    } finally {
-      setLoading(false);
-    }
+        // Fetch recent logs (last 10)
+        const logsRes = await fetch(`/api/intake-forms/${id}?includeRecentLogs=true`);
+        if (logsRes.ok) {
+          const logsData: { recentLogs?: RecentLog[] } = await logsRes.json();
+          setRecentLogs(logsData.recentLogs ?? []);
+        }
+      })
+      .catch((err) => {
+        toast("error", err instanceof Error ? err.message : "Failed to load form");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
+
+  function reloadAll() {
+    setLoading(true);
+    loadAll();
   }
 
   React.useEffect(() => {
@@ -232,7 +246,7 @@ export default function IntakeFormDetailPage() {
             formId={id}
             initialMap={fieldMapData.fieldMap ?? {}}
             sample={fieldMapData.sample}
-            onSaved={loadAll}
+            onSaved={reloadAll}
           />
         ) : (
           <div className="py-6 text-center text-sm text-gray-400">

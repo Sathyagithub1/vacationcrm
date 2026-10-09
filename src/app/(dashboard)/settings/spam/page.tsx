@@ -76,18 +76,25 @@ export default function SpamSettingsPage() {
   const [showNew,   setShowNew]   = React.useState(false);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
 
-  async function fetchRules() {
+  // `loading` starts true for the mount fetch; refreshes go through reloadRules.
+  function fetchRules() {
+    return fetch("/api/spam-rules?limit=100")
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to load spam rules");
+        const data: { rules: SpamRule[] } = await res.json();
+        setRules(data.rules ?? []);
+      })
+      .catch((err) => {
+        toast("error", err instanceof Error ? err.message : "Failed to load spam rules");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
+
+  function reloadRules() {
     setLoading(true);
-    try {
-      const res = await fetch("/api/spam-rules?limit=100");
-      if (!res.ok) throw new Error("Failed to load spam rules");
-      const data: { rules: SpamRule[] } = await res.json();
-      setRules(data.rules ?? []);
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to load spam rules");
-    } finally {
-      setLoading(false);
-    }
+    fetchRules();
   }
 
   React.useEffect(() => {
@@ -104,7 +111,7 @@ export default function SpamSettingsPage() {
         throw new Error(data.error ?? "Failed to delete rule");
       }
       toast("success", "Rule deleted");
-      fetchRules();
+      reloadRules();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to delete rule");
     } finally {
@@ -124,7 +131,7 @@ export default function SpamSettingsPage() {
         throw new Error(data.error ?? "Failed to update rule");
       }
       toast("success", rule.isActive ? "Rule paused" : "Rule activated");
-      fetchRules();
+      reloadRules();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to update rule");
     }
@@ -237,7 +244,7 @@ export default function SpamSettingsPage() {
         <SpamRuleForm
           onCreated={() => {
             setShowNew(false);
-            fetchRules();
+            reloadRules();
           }}
           onCancel={() => setShowNew(false)}
         />

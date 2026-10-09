@@ -108,7 +108,7 @@ export default function ConversationsPage() {
   }, []);
 
   // Wire up WebSocket for the selected conversation
-  const { startTyping, stopTyping } = useConversationSocket(
+  const { stopTyping } = useConversationSocket(
     socket,
     selectedId,
     handleNewMessage,
@@ -117,21 +117,25 @@ export default function ConversationsPage() {
   );
 
   // Fetch conversation list
-  const fetchConversations = React.useCallback(async () => {
-    try {
-      const params = new URLSearchParams();
-      params.set("limit", "100");
-      if (statusFilter) params.set("status", statusFilter);
+  const fetchConversations = React.useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("limit", "100");
+    if (statusFilter) params.set("status", statusFilter);
 
-      const res = await fetch(`/api/conversations?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setConversations(data.conversations);
-    } catch {
-      toast("error", "Failed to load conversations");
-    } finally {
-      setLoadingList(false);
-    }
+    return fetch(`/api/conversations?${params}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setConversations(data.conversations);
+      })
+      .catch(() => {
+        toast("error", "Failed to load conversations");
+      })
+      .finally(() => {
+        setLoadingList(false);
+      });
   }, [statusFilter, toast]);
 
   React.useEffect(() => {
@@ -154,28 +158,44 @@ export default function ConversationsPage() {
     fetchCanned();
   }, []);
 
-  // Fetch detail + messages when selected
-  const fetchDetail = React.useCallback(async (convId: string) => {
-    setLoadingMessages(true);
-    try {
-      const [detailRes, msgRes] = await Promise.all([
-        fetch(`/api/conversations/${convId}`),
-        fetch(`/api/conversations/${convId}/messages?limit=100`),
-      ]);
-      if (detailRes.ok) {
-        const detailData = await detailRes.json();
-        setDetail(detailData.conversation);
-      }
-      if (msgRes.ok) {
-        const msgData = await msgRes.json();
-        setMessages(msgData.messages || []);
-      }
-    } catch {
-      toast("error", "Failed to load conversation");
-    } finally {
-      setLoadingMessages(false);
+  // Fetch detail + messages when selected. Callers set loadingMessages=true
+  // beforehand (render-phase reset below, or the handler that triggers a refresh).
+  const fetchDetail = React.useCallback((convId: string) =>
+    Promise.all([
+      fetch(`/api/conversations/${convId}`),
+      fetch(`/api/conversations/${convId}/messages?limit=100`),
+    ])
+      .then(([detailRes, msgRes]) =>
+        Promise.all([
+          detailRes.ok ? detailRes.json() : null,
+          msgRes.ok ? msgRes.json() : null,
+        ])
+      )
+      .then(([detailData, msgData]) => {
+        if (detailData) setDetail(detailData.conversation);
+        if (msgData) setMessages(msgData.messages || []);
+      })
+      .catch(() => {
+        toast("error", "Failed to load conversation");
+      })
+      .finally(() => {
+        setLoadingMessages(false);
+      }), [toast]);
+
+  // When the selection (or WS connectivity, which re-runs the fetch below) changes,
+  // adjust state during render: show the message spinner, or clear the panel.
+  const selectionKey = `${selectedId ?? ""}|${isConnected}`;
+  const [lastSelectionKey, setLastSelectionKey] = React.useState(selectionKey);
+  if (selectionKey !== lastSelectionKey) {
+    setLastSelectionKey(selectionKey);
+    if (selectedId) {
+      setLoadingMessages(true);
+    } else {
+      setDetail(null);
+      setMessages([]);
+      setTypingUser(null);
     }
-  }, [toast]);
+  }
 
   // When selection changes
   React.useEffect(() => {
@@ -195,10 +215,6 @@ export default function ConversationsPage() {
           pollRef.current = null;
         }
       }
-    } else {
-      setDetail(null);
-      setMessages([]);
-      setTypingUser(null);
     }
 
     return () => {
@@ -261,6 +277,7 @@ export default function ConversationsPage() {
       toast("success", "Conversation closed");
       // Refresh
       fetchConversations();
+      setLoadingMessages(true);
       fetchDetail(selectedId);
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to close");

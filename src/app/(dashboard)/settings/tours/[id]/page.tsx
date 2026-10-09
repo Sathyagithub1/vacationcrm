@@ -90,33 +90,48 @@ export default function TourDetailPage() {
   const [newLeadId,  setNewLeadId]  = React.useState("");
   const [newSeats,   setNewSeats]   = React.useState(1);
 
-  async function loadTour() {
+  // Show the spinner when the route id changes (render-phase adjustment
+  // instead of a synchronous setLoading(true) inside the fetch effect).
+  const [loadedId, setLoadedId] = React.useState(id);
+  if (id !== loadedId) {
+    setLoadedId(id);
     setLoading(true);
-    try {
-      const [tourRes, bookRes] = await Promise.all([
-        fetch(`/api/tours/${id}`),
-        fetch(`/api/tours/${id}/bookings?limit=50`),
-      ]);
-      if (!tourRes.ok) throw new Error("Tour not found");
-      const tourData: { tour: TourDetail } = await tourRes.json();
-      setTour(tourData.tour);
-      setName(tourData.tour.name);
-      setCode(tourData.tour.code);
-      setCapacity(tourData.tour.capacity);
-      setStatus(tourData.tour.status);
-      setStartDate(tourData.tour.startDate ? tourData.tour.startDate.slice(0, 10) : "");
-      setEndDate(tourData.tour.endDate   ? tourData.tour.endDate.slice(0, 10)   : "");
-      setDescription(tourData.tour.description ?? "");
+  }
 
-      if (bookRes.ok) {
-        const bookData: { bookings: Booking[] } = await bookRes.json();
-        setBookings(bookData.bookings ?? []);
-      }
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to load tour");
-    } finally {
-      setLoading(false);
-    }
+  // Callers outside the effect go through reloadTour (which sets loading first).
+  function loadTour() {
+    return Promise.all([
+      fetch(`/api/tours/${id}`),
+      fetch(`/api/tours/${id}/bookings?limit=50`),
+    ])
+      .then(async ([tourRes, bookRes]) => {
+        if (!tourRes.ok) throw new Error("Tour not found");
+        const tourData: { tour: TourDetail } = await tourRes.json();
+        setTour(tourData.tour);
+        setName(tourData.tour.name);
+        setCode(tourData.tour.code);
+        setCapacity(tourData.tour.capacity);
+        setStatus(tourData.tour.status);
+        setStartDate(tourData.tour.startDate ? tourData.tour.startDate.slice(0, 10) : "");
+        setEndDate(tourData.tour.endDate   ? tourData.tour.endDate.slice(0, 10)   : "");
+        setDescription(tourData.tour.description ?? "");
+
+        if (bookRes.ok) {
+          const bookData: { bookings: Booking[] } = await bookRes.json();
+          setBookings(bookData.bookings ?? []);
+        }
+      })
+      .catch((err) => {
+        toast("error", err instanceof Error ? err.message : "Failed to load tour");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
+
+  function reloadTour() {
+    setLoading(true);
+    loadTour();
   }
 
   React.useEffect(() => {
@@ -149,7 +164,7 @@ export default function TourDetailPage() {
         throw new Error(data.error ?? "Failed to save tour");
       }
       toast("success", "Tour updated");
-      loadTour();
+      reloadTour();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to save tour");
     } finally {
@@ -168,7 +183,7 @@ export default function TourDetailPage() {
         throw new Error(data.error ?? "Failed to delete booking");
       }
       toast("success", "Booking removed");
-      loadTour();
+      reloadTour();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to delete booking");
     } finally {
@@ -195,7 +210,7 @@ export default function TourDetailPage() {
       toast("success", "Booking added");
       setShowAddBooking(false);
       setNewLeadId(""); setNewSeats(1);
-      loadTour();
+      reloadTour();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to add booking");
     } finally {
