@@ -1,7 +1,5 @@
 "use client";
 
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
-
 interface StatCounterWidgetProps {
   data: { value: number; label: string; converted?: number; total?: number } | null;
   loading?: boolean;

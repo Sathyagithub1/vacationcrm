@@ -1,4 +1,5 @@
-type TenantDb = ReturnType<typeof import("@/lib/prisma").tenantPrisma>;
+import type { MessageSenderType, MessageType } from "@prisma/client";
+import type { TenantDb } from "@/lib/prisma";
 
 interface CreateConversationData {
   leadId: string;
@@ -7,10 +8,10 @@ interface CreateConversationData {
 
 interface SendMessageData {
   conversationId: string;
-  senderType: string;
+  senderType: MessageSenderType;
   senderId?: string | null;
   content: string;
-  messageType?: string;
+  messageType?: MessageType;
   fileUrl?: string | null;
 }
 
@@ -29,8 +30,9 @@ export async function createConversation(db: TenantDb, data: CreateConversationD
   const agent = await db.user.findFirst({ where: { id: data.assignedAgentId, isActive: true } });
   if (!agent) throw new Error("Agent not found");
 
-  const conversation = await (db.conversation.create as Function)({
+  const conversation = await db.conversation.create({
     data: {
+      tenantId: db.$tenantId,
       leadId: data.leadId,
       channel: "MANUAL",
       status: "ACTIVE",
@@ -48,8 +50,9 @@ export async function sendMessage(db: TenantDb, data: SendMessageData) {
   if (!conversation) throw new Error("Conversation not found");
   if (conversation.status === "CLOSED") throw new Error("Cannot send message to a closed conversation");
 
-  const message = await (db.message.create as Function)({
+  const message = await db.message.create({
     data: {
+      tenantId: db.$tenantId,
       conversationId: data.conversationId,
       senderType: data.senderType,
       senderId: data.senderId || null,

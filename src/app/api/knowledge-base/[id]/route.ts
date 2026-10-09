@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { KnowledgeBaseType } from "@prisma/client";
 import { requirePermission, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { updateKnowledgeBase, deleteKnowledgeBase } from "@/modules/ai/knowledge-base.service";
 import { logAudit } from "@/modules/audit/audit.service";
@@ -32,7 +33,7 @@ export async function PUT(
       return NextResponse.json({ error: "Content cannot be empty" }, { status: 400 });
     }
 
-    const updateData: { title?: string; content?: string; type?: string; isActive?: boolean } = {};
+    const updateData: { title?: string; content?: string; type?: KnowledgeBaseType; isActive?: boolean } = {};
     if (title !== undefined) updateData.title = title.trim();
     if (content !== undefined) updateData.content = content.trim();
     if (type !== undefined) updateData.type = type;

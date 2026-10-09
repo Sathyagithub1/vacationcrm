@@ -145,7 +145,7 @@ export async function PUT(
       newValue: updateData,
     });
 
-    const { passwordHash: _ph, ...safeUser } = updated;
+    const safeUser = { ...updated, passwordHash: undefined };
     return NextResponse.json({ user: safeUser });
   } catch (error) {
     if (error instanceof Error) {
@@ -198,7 +198,7 @@ export async function PATCH(
       newValue: { isActive },
     });
 
-    const { passwordHash: _ph, ...safeUser } = updated;
+    const safeUser = { ...updated, passwordHash: undefined };
     return NextResponse.json({ user: safeUser });
   } catch (error) {
     if (error instanceof Error) {

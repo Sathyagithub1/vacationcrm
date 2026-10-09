@@ -27,7 +27,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
     const { db } = await requirePermission("payments:view");
     const { id } = await context.params;
 
-    const payment = await (db.payment.findFirst as Function)({
+    const payment = await db.payment.findFirst({
       where: { id },
       include: {
         customer: { select: { id: true, name: true, mobile: true, email: true } },

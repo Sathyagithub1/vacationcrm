@@ -10,7 +10,7 @@ interface WeightInput {
 const VALID_CATEGORIES = ["engagement", "attributes", "historical", "conversation"] as const;
 
 // GET /api/analytics/scoring-weights — list scoring weights for this tenant
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
     const { user, db } = await requirePermission("settings:analytics");
 

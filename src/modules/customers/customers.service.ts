@@ -1,6 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
-
-type TenantDb = ReturnType<typeof import("@/lib/prisma").tenantPrisma>;
+import type { TenantDb, TenantTx } from "@/lib/prisma";
 
 interface FindOrCreateData {
   name: string;
@@ -14,7 +12,7 @@ interface FindOrCreateData {
  * If customer with same mobile exists, update name/email if provided and return.
  * If not, create new customer.
  */
-export async function findOrCreateCustomer(db: TenantDb, data: FindOrCreateData) {
+export async function findOrCreateCustomer(db: TenantDb | TenantTx, data: FindOrCreateData) {
   const existing = await db.customer.findFirst({
     where: { mobile: data.mobile },
   });
@@ -35,8 +33,9 @@ export async function findOrCreateCustomer(db: TenantDb, data: FindOrCreateData)
     return existing;
   }
 
-  return (db.customer.create as Function)({
+  return db.customer.create({
     data: {
+      tenantId: data.tenantId,
       name: data.name,
       mobile: data.mobile,
       email: data.email || null,
@@ -47,7 +46,7 @@ export async function findOrCreateCustomer(db: TenantDb, data: FindOrCreateData)
 /**
  * Recalculate totalLeads and lastLeadDate from leads table.
  */
-export async function updateCustomerStats(db: TenantDb, customerId: string) {
+export async function updateCustomerStats(db: TenantDb | TenantTx, customerId: string) {
   const stats = await db.lead.aggregate({
     where: { customerId },
     _count: { id: true },

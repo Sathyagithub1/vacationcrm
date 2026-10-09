@@ -50,7 +50,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
-    const { user, db } = await requirePermission("settings:integrations");
+    const { db } = await requirePermission("settings:integrations");
 
     const form = await db.intakeForm.findFirst({ where: { id } });
     if (!form) return NextResponse.json({ error: "Not found" }, { status: 404 });

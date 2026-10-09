@@ -114,24 +114,36 @@ export default function PaymentsPage() {
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
 
-  const fetchPayments = useCallback(async () => {
+  // Show the loading state (and clear any previous error) whenever the query
+  // changes — adjusted during render instead of synchronously inside the effect.
+  const fetchKey = `${page}|${statusFilter}|${dateFrom}|${dateTo}`;
+  const [lastFetchKey, setLastFetchKey] = useState(fetchKey);
+  if (fetchKey !== lastFetchKey) {
+    setLastFetchKey(fetchKey);
     setLoading(true);
     setError(null);
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: "20" });
-      if (statusFilter) params.set("status", statusFilter);
-      if (dateFrom) params.set("dateFrom", dateFrom);
-      if (dateTo) params.set("dateTo", dateTo);
+  }
 
-      const res = await fetch(`/api/payments?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to load payments");
-      const json = (await res.json()) as PaymentsResponse;
-      setData(json);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setLoading(false);
-    }
+  const fetchPayments = useCallback(() => {
+    const params = new URLSearchParams({ page: String(page), limit: "20" });
+    if (statusFilter) params.set("status", statusFilter);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+
+    return fetch(`/api/payments?${params.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load payments");
+        return res.json() as Promise<PaymentsResponse>;
+      })
+      .then((json) => {
+        setData(json);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "An error occurred");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [page, statusFilter, dateFrom, dateTo]);
 
   useEffect(() => {

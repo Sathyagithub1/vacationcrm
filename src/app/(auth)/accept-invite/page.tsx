@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
@@ -36,9 +36,9 @@ function AcceptInviteForm() {
   const router = useRouter();
   const token = searchParams.get("token");
 
-  const [validating, setValidating] = useState(true);
+  const [validatingToken, setValidating] = useState(true);
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
-  const [tokenError, setTokenError] = useState("");
+  const [tokenErrorState, setTokenError] = useState("");
 
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -51,34 +51,29 @@ function AcceptInviteForm() {
     fetchPublicBranding().then(setBranding);
   }, []);
 
-  const validateToken = useCallback(async () => {
-    if (!token) {
-      setTokenError("No invitation token provided.");
-      setValidating(false);
-      return;
-    }
+  useEffect(() => {
+    // A missing token is derived during render (see `validating` / `tokenError` below).
+    if (!token) return;
 
-    try {
-      const res = await fetch(
-        `/api/auth/accept-invite/validate?token=${encodeURIComponent(token)}`
-      );
-      const data = await res.json();
-
-      if (data.valid) {
-        setInviteInfo({ email: data.email, role: data.role });
-      } else {
-        setTokenError(data.error || "Invalid or expired invitation.");
-      }
-    } catch {
-      setTokenError("Failed to validate invitation.");
-    } finally {
-      setValidating(false);
-    }
+    fetch(`/api/auth/accept-invite/validate?token=${encodeURIComponent(token)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.valid) {
+          setInviteInfo({ email: data.email, role: data.role });
+        } else {
+          setTokenError(data.error || "Invalid or expired invitation.");
+        }
+      })
+      .catch(() => {
+        setTokenError("Failed to validate invitation.");
+      })
+      .finally(() => {
+        setValidating(false);
+      });
   }, [token]);
 
-  useEffect(() => {
-    validateToken();
-  }, [validateToken]);
+  const validating = token ? validatingToken : false;
+  const tokenError = token ? tokenErrorState : "No invitation token provided.";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

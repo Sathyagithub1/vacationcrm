@@ -4,7 +4,7 @@
  * Periodically finds PENDING follow-ups where scheduledAt <= now,
  * creates a notification for the assigned user, and marks the follow-up as SENT.
  */
-import { Worker, Job } from "bullmq";
+import { Worker } from "bullmq";
 import { prisma } from "@/lib/prisma";
 import { getRedis } from "@/lib/redis";
 import { createNotification } from "@/modules/notifications/notification.service";
@@ -74,7 +74,7 @@ export function createFollowUpWorker() {
 
   const worker = new Worker(
     QUEUE_NAME,
-    async (_job: Job) => {
+    async () => {
       return processDueFollowUps();
     },
     {

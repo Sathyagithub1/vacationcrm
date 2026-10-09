@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import {
   requirePermission,
   unauthorized,
@@ -6,7 +6,7 @@ import {
 } from "@/modules/auth/tenant.middleware";
 
 // GET /api/ai/metrics — aggregate AI usage metrics for this tenant
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
     const { db } = await requirePermission("ai:metrics");
 

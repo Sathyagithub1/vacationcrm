@@ -27,6 +27,17 @@ interface NotificationItem {
   createdAt: string;
 }
 
+function formatTimeAgo(dateStr: string, now: number): string {
+  const diff = now - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
 export function Header({ onMenuClick }: HeaderProps) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -47,6 +58,9 @@ export function Header({ onMenuClick }: HeaderProps) {
   const [notifOpen, setNotifOpen] = React.useState(false);
   const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
   const [loadingNotifs, setLoadingNotifs] = React.useState(false);
+  // Reference time for "x ago" labels; refreshed when notifications load and
+  // every minute while the dropdown is open (keeps render pure).
+  const [now, setNow] = React.useState(() => Date.now());
   const notifRef = React.useRef<HTMLDivElement>(null);
 
   // Fetch unread count on mount and every 30 seconds
@@ -71,6 +85,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   async function openNotifications() {
     setNotifOpen((prev) => !prev);
     if (!notifOpen) {
+      setNow(Date.now());
       setLoadingNotifs(true);
       try {
         const res = await fetch("/api/notifications?limit=5");
@@ -78,6 +93,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           const data = await res.json();
           setNotifications(data.notifications || []);
           setNotifCount(data.unreadCount || 0);
+          setNow(Date.now());
         }
       } catch {
         // silent
@@ -115,28 +131,33 @@ export function Header({ onMenuClick }: HeaderProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  function formatTimeAgo(dateStr: string): string {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    return `${days}d ago`;
+  // Keep "x ago" labels fresh while the notification dropdown is open.
+  React.useEffect(() => {
+    if (!notifOpen) return;
+    const interval = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, [notifOpen]);
+
+  // Reset/flag search state as soon as the query changes (adjusted during render;
+  // the effect below only schedules the debounced fetch).
+  const searchActive = !!searchQuery && searchQuery.length >= 2;
+  const [lastSearchQuery, setLastSearchQuery] = React.useState(searchQuery);
+  if (searchQuery !== lastSearchQuery) {
+    setLastSearchQuery(searchQuery);
+    if (searchActive) {
+      setSearching(true);
+    } else {
+      setResults(null);
+      setSearching(false);
+    }
   }
 
   // Debounced search
   React.useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (!searchQuery || searchQuery.length < 2) {
-      setResults(null);
-      setSearching(false);
-      return;
-    }
+    if (!searchActive) return;
 
-    setSearching(true);
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
@@ -154,7 +175,7 @@ export function Header({ onMenuClick }: HeaderProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [searchQuery]);
+  }, [searchQuery, searchActive]);
 
   // Close on Escape
   React.useEffect(() => {
@@ -438,7 +459,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-gray-900">{n.title}</p>
                           <p className="mt-0.5 text-xs text-gray-500 line-clamp-2">{n.body}</p>
-                          <p className="mt-1 text-[10px] text-gray-400">{formatTimeAgo(n.createdAt)}</p>
+                          <p className="mt-1 text-[10px] text-gray-400">{formatTimeAgo(n.createdAt, now)}</p>
                         </div>
                       </div>
                     </div>

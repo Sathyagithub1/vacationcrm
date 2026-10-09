@@ -8,4 +8,4 @@
  * assertions like `expect(el).toBeInTheDocument()` work in component tests.
  */
 
-import "@testing-library/jest-dom";
+import "@testing-library/jest-dom/vitest";

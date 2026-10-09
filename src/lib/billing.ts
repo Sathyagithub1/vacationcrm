@@ -55,7 +55,6 @@ export async function createCheckoutSession(
   }
 
   // Lazy, optional require so the app builds/runs without the `stripe` package.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   let StripeCtor: unknown;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

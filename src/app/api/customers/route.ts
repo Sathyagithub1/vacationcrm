@@ -6,7 +6,7 @@ import { resolveCustomerByPhone } from "@/modules/customers/phone-identity";
 // GET /api/customers — list with search, filter, pagination
 export async function GET(request: NextRequest) {
   try {
-    const { user, db } = await requireAuth();
+    const { db } = await requireAuth();
     const { searchParams } = request.nextUrl;
 
     const q = searchParams.get("q")?.trim() || "";
@@ -72,8 +72,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ customer: existing, deduped: true }, { status: 200 });
     }
 
-    const customer = await (db.customer.create as Function)({
+    const customer = await db.customer.create({
       data: {
+        tenantId: user.tenantId,
         name: name.trim(),
         mobile: mobile.trim(),
         email: email?.trim() || null,

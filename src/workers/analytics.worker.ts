@@ -5,8 +5,8 @@
  * scoring weights by comparing predicted scores vs actual outcomes.
  */
 import { Worker, Job } from "bullmq";
-import { Prisma } from "@prisma/client";
-import { prisma, tenantPrisma } from "@/lib/prisma";
+import { Prisma, type StatsDimension } from "@prisma/client";
+import { tenantPrisma } from "@/lib/prisma";
 import { getRedis } from "@/lib/redis";
 
 const QUEUE_NAME = "analytics";
@@ -58,7 +58,7 @@ async function refreshConversionStats(
 
   // Aggregate by dimension
   const dimensions: Array<{
-    dimension: string;
+    dimension: StatsDimension;
     key: string;
     getValue: (lead: (typeof leads)[0]) => string;
   }> = [
@@ -84,7 +84,7 @@ async function refreshConversionStats(
       const rate = stats.total > 0 ? stats.converted / stats.total : 0;
 
       // Upsert conversion stat
-      const existing = await (db.conversionStat.findFirst as Function)({
+      const existing = await db.conversionStat.findFirst({
         where: {
           dimension: dim.dimension,
           dimensionValue: value,
@@ -105,12 +105,12 @@ async function refreshConversionStats(
       };
 
       if (existing) {
-        await (db.conversionStat.update as Function)({
-          where: { id: (existing as Record<string, unknown>).id },
+        await db.conversionStat.update({
+          where: { id: existing.id },
           data,
         });
       } else {
-        await (db.conversionStat.create as Function)({ data });
+        await db.conversionStat.create({ data });
       }
     }
   }

@@ -20,6 +20,10 @@ interface UseSocketReturn {
 export function useSocket(): UseSocketReturn {
   const { data: session, status } = useSession();
   const socketRef = useRef<Socket | null>(null);
+  // The connected socket is exposed through state (not by reading the ref during
+  // render) so consumers re-render when it becomes available. socketRef is kept
+  // for cleanup.
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
 
@@ -52,6 +56,7 @@ export function useSocket(): UseSocketReturn {
         socketRef.current = socket;
 
         socket.on("connect", () => {
+          setSocket(socket);
           setIsConnected(true);
         });
 
@@ -91,13 +96,14 @@ export function useSocket(): UseSocketReturn {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
+      setSocket(null);
       setIsConnected(false);
       setOnlineUsers([]);
     };
   }, [session, status]);
 
   return {
-    socket: socketRef.current,
+    socket,
     isConnected,
     onlineUsers,
   };

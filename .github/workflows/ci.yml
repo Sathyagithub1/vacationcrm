@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install (frozen lockfile)
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Obviously-fake placeholders for CI only. Not real secrets.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_placeholder
+      REDIS_URL: redis://localhost:6379
+      NEXTAUTH_SECRET: ci-placeholder-not-a-real-secret-0000000000
+      NEXTAUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install (frozen lockfile)
+        run: npm ci
+      - name: Prisma generate
+        run: npx prisma generate
+      - name: Build (includes Next.js type check)
+        run: npm run build
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Ephemeral, CI-only Postgres + Redis containers. The repo's vitest suites
+    # are DB-backed; these containers are created fresh per run and destroyed
+    # afterwards. No live/shared database is ever touched.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: holiday_delight_crm_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/holiday_delight_crm_ci
+      DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/holiday_delight_crm_ci
+      REDIS_URL: redis://localhost:6379
+      REDIS_URL_TEST: redis://localhost:6379
+      NEXTAUTH_SECRET: ci-placeholder-not-a-real-secret-0000000000
+      NEXTAUTH_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install (frozen lockfile)
+        run: npm ci
+      - name: Prisma generate
+        run: npx prisma generate
+      - name: Apply migrations to ephemeral CI database
+        run: npx prisma migrate deploy
+      - name: Unit/integration tests (node env, AI providers mocked, offline)
+        run: npm test
+
+  test-ui:
+    name: UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install (frozen lockfile)
+        run: npm ci
+      - name: Prisma generate
+        run: npx prisma generate
+      - name: UI component tests (jsdom)
+        run: npm run test:ui

@@ -2,8 +2,7 @@
 
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Phone, Mail, MapPin, Send, Trash2, X, Calendar, Clock, AlertTriangle, History, ChevronDown, ChevronUp, CreditCard } from "lucide-react";
-import { PageHeader } from "@/components/layout/page-header";
+import { ArrowLeft, Phone, Mail, MapPin, Send, Trash2, X, Calendar, History, ChevronDown, ChevronUp, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -172,87 +171,101 @@ export default function LeadDetailPage() {
   const [escalationNotes, setEscalationNotes] = React.useState("");
   const [escalationTo, setEscalationTo] = React.useState("");
   const [submittingEscalation, setSubmittingEscalation] = React.useState(false);
-  const [submittingConversation, setSubmittingConversation] = React.useState(false);
 
   // Fetch lead detail
-  const fetchLead = React.useCallback(async () => {
-    try {
-      const res = await fetch(`/api/leads/${leadId}`);
-      if (!res.ok) {
-        if (res.status === 404) {
-          toast("error", "Lead not found");
-          router.push("/leads");
-          return;
-        }
-        throw new Error("Failed to fetch");
-      }
-      const data = await res.json();
-      setLead(data.lead);
-      setActivities(data.activities || []);
-    } catch {
-      toast("error", "Failed to load lead");
-    } finally {
-      setLoading(false);
-    }
-  }, [leadId, toast, router]);
+  const fetchLead = React.useCallback(
+    () =>
+      fetch(`/api/leads/${leadId}`)
+        .then((res) => {
+          if (!res.ok) {
+            if (res.status === 404) {
+              toast("error", "Lead not found");
+              router.push("/leads");
+              return null;
+            }
+            throw new Error("Failed to fetch");
+          }
+          return res.json();
+        })
+        .then((data) => {
+          if (!data) return;
+          setLead(data.lead);
+          setActivities(data.activities || []);
+        })
+        .catch(() => {
+          toast("error", "Failed to load lead");
+        })
+        .finally(() => {
+          setLoading(false);
+        }),
+    [leadId, toast, router]
+  );
 
   // Fetch customer history (other leads + past payments) from EXISTING
   // endpoints only. Fails soft per-source so a failure in one (e.g. the
   // operator lacks payments:view) never breaks the section or the page.
-  const fetchHistory = React.useCallback(async (customerId: string, currentLeadId: string) => {
-    setHistoryLoading(true);
-    try {
-      const [custRes, payRes] = await Promise.allSettled([
-        fetch(`/api/customers/${customerId}`),
-        fetch(`/api/payments?customerId=${encodeURIComponent(customerId)}&limit=50`),
-      ]);
-
-      // Other leads — exclude the lead currently open on this page.
-      if (custRes.status === "fulfilled" && custRes.value.ok) {
-        try {
-          const data = await custRes.value.json();
-          const leads: HistoryLead[] = Array.isArray(data.leads) ? data.leads : [];
-          setHistoryLeads(leads.filter((l) => l.id !== currentLeadId));
-        } catch {
+  // Callers flip historyLoading=true beforehand (see the render-phase check below).
+  const fetchHistory = React.useCallback((customerId: string, currentLeadId: string) =>
+    Promise.allSettled([
+      fetch(`/api/customers/${customerId}`),
+      fetch(`/api/payments?customerId=${encodeURIComponent(customerId)}&limit=50`),
+    ])
+      .then(async ([custRes, payRes]) => {
+        // Other leads — exclude the lead currently open on this page.
+        if (custRes.status === "fulfilled" && custRes.value.ok) {
+          try {
+            const data = await custRes.value.json();
+            const leads: HistoryLead[] = Array.isArray(data.leads) ? data.leads : [];
+            setHistoryLeads(leads.filter((l) => l.id !== currentLeadId));
+          } catch {
+            setHistoryLeads([]);
+          }
+        } else {
           setHistoryLeads([]);
         }
-      } else {
-        setHistoryLeads([]);
-      }
 
-      // Past payments — the endpoint requires payments:view; treat a 403 as
-      // "not available to this role" rather than an error.
-      if (payRes.status === "fulfilled" && payRes.value.ok) {
-        try {
-          const data = await payRes.value.json();
-          setHistoryPayments(Array.isArray(data.payments) ? data.payments : []);
-          setHistoryPaymentsAvailable(true);
-        } catch {
+        // Past payments — the endpoint requires payments:view; treat a 403 as
+        // "not available to this role" rather than an error.
+        if (payRes.status === "fulfilled" && payRes.value.ok) {
+          try {
+            const data = await payRes.value.json();
+            setHistoryPayments(Array.isArray(data.payments) ? data.payments : []);
+            setHistoryPaymentsAvailable(true);
+          } catch {
+            setHistoryPayments([]);
+            setHistoryPaymentsAvailable(true);
+          }
+        } else {
           setHistoryPayments([]);
-          setHistoryPaymentsAvailable(true);
+          setHistoryPaymentsAvailable(
+            !(payRes.status === "fulfilled" && payRes.value.status === 403),
+          );
         }
-      } else {
+      })
+      .catch(() => {
+        // Total failure — leave whatever we had; section shows empty states.
+        setHistoryLeads([]);
         setHistoryPayments([]);
-        setHistoryPaymentsAvailable(
-          !(payRes.status === "fulfilled" && payRes.value.status === 403),
-        );
-      }
-    } catch {
-      // Total failure — leave whatever we had; section shows empty states.
-      setHistoryLeads([]);
-      setHistoryPayments([]);
-    } finally {
-      setHistoryLoading(false);
-      setHistoryLoaded(true);
-    }
-  }, []);
+      })
+      .finally(() => {
+        setHistoryLoading(false);
+        setHistoryLoaded(true);
+      }), []);
 
   // Load history once the lead (and therefore its customer id) is known.
+  // The loading flag is raised during render (adjust-state-on-change pattern);
+  // the effect below then performs the single fetch.
+  const historyCustomerId = lead?.customer?.id ?? null;
+  const historyLeadId = lead?.id ?? null;
+  if (historyCustomerId && !historyLoaded && !historyLoading) {
+    setHistoryLoading(true);
+  }
+
   React.useEffect(() => {
-    if (lead?.customer?.id && !historyLoaded && !historyLoading) {
-      fetchHistory(lead.customer.id, lead.id);
+    if (historyCustomerId && historyLeadId && !historyLoaded) {
+      fetchHistory(historyCustomerId, historyLeadId);
     }
-  }, [lead, historyLoaded, historyLoading, fetchHistory]);
+  }, [historyCustomerId, historyLeadId, historyLoaded, fetchHistory]);
 
   // Fetch reference data
   React.useEffect(() => {
@@ -424,7 +437,6 @@ export default function LeadDetailPage() {
   // Start conversation
   async function handleStartConversation() {
     if (!lead) return;
-    setSubmittingConversation(true);
     try {
       const res = await fetch("/api/conversations", {
         method: "POST",
@@ -439,8 +451,6 @@ export default function LeadDetailPage() {
       router.push("/conversations");
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to start conversation");
-    } finally {
-      setSubmittingConversation(false);
     }
   }
 

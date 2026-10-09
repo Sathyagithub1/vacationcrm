@@ -6,7 +6,6 @@ import { useSession } from "next-auth/react";
 import { Plus, Search, LayoutList, Columns3 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { Modal } from "@/components/ui/modal";
 import { Pagination } from "@/components/ui/pagination";
 import { Spinner } from "@/components/ui/loading";
@@ -71,13 +70,12 @@ export default function LeadsPage() {
 
   // Initialize assignee filter to "Me" for agents the first time we know who
   // they are. Only fire once — leave their explicit choice alone afterwards.
-  const initializedAssigneeRef = React.useRef(false);
-  React.useEffect(() => {
-    if (initializedAssigneeRef.current) return;
-    if (!currentUserId) return;
+  // (Adjusts state during render instead of in an effect.)
+  const [assigneeInitialized, setAssigneeInitialized] = React.useState(false);
+  if (!assigneeInitialized && currentUserId) {
+    setAssigneeInitialized(true);
     if (isAgent) setFilterAssignee("__me__");
-    initializedAssigneeRef.current = true;
-  }, [currentUserId, isAgent]);
+  }
 
   // Reference data
   const [departments, setDepartments] = React.useState<Department[]>([]);
@@ -136,55 +134,76 @@ export default function LeadsPage() {
     fetchRefs();
   }, [toast]);
 
-  // Fetch leads
-  const fetchLeads = React.useCallback(async () => {
+  // Show the spinner whenever the query, page, filters or view change
+  // (adjust state during render; the initial state covers the first load).
+  const fetchKey = [
+    debouncedQuery,
+    page,
+    filterDept,
+    filterStage,
+    filterSource,
+    filterPriority,
+    filterAssignee,
+    currentUserId ?? "",
+    viewMode,
+  ].join("|");
+  const [lastFetchKey, setLastFetchKey] = React.useState(fetchKey);
+  if (fetchKey !== lastFetchKey) {
+    setLastFetchKey(fetchKey);
     setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (debouncedQuery) params.set("q", debouncedQuery);
-      params.set("page", String(page));
-      params.set("limit", viewMode === "board" ? "200" : "20");
-      if (filterDept) params.set("departmentId", filterDept);
-      if (filterStage) params.set("stageId", filterStage);
-      if (filterSource) params.set("source", filterSource);
-      if (filterPriority) params.set("priority", filterPriority);
-      // Phase 6i — assignedTo filter (resolve "__me__" sentinel here)
-      if (filterAssignee === "__me__" && currentUserId) {
-        params.set("assignedTo", currentUserId);
-      } else if (filterAssignee === "__unassigned__") {
-        params.set("assignedTo", "null");
-      } else if (filterAssignee) {
-        params.set("assignedTo", filterAssignee);
-      }
+  }
 
-      const res = await fetch(`/api/leads?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-
-      // Fetch scores for all leads in parallel
-      const leadsWithScores = await Promise.all(
-        (data.leads as LeadRow[]).map(async (lead: LeadRow) => {
-          try {
-            const scoreRes = await fetch(`/api/leads/${lead.id}/score`);
-            if (scoreRes.ok) {
-              const scoreData = await scoreRes.json();
-              return { ...lead, score: scoreData.score?.total ?? null };
-            }
-          } catch {
-            // Score fetch non-critical
-          }
-          return { ...lead, score: null };
-        })
-      );
-
-      setLeads(leadsWithScores);
-      setTotal(data.total);
-      setTotalPages(data.totalPages);
-    } catch {
-      toast("error", "Failed to load leads");
-    } finally {
-      setLoading(false);
+  // Fetch leads (callers set loading=true beforehand)
+  const fetchLeads = React.useCallback(() => {
+    const params = new URLSearchParams();
+    if (debouncedQuery) params.set("q", debouncedQuery);
+    params.set("page", String(page));
+    params.set("limit", viewMode === "board" ? "200" : "20");
+    if (filterDept) params.set("departmentId", filterDept);
+    if (filterStage) params.set("stageId", filterStage);
+    if (filterSource) params.set("source", filterSource);
+    if (filterPriority) params.set("priority", filterPriority);
+    // Phase 6i — assignedTo filter (resolve "__me__" sentinel here)
+    if (filterAssignee === "__me__" && currentUserId) {
+      params.set("assignedTo", currentUserId);
+    } else if (filterAssignee === "__unassigned__") {
+      params.set("assignedTo", "null");
+    } else if (filterAssignee) {
+      params.set("assignedTo", filterAssignee);
     }
+
+    return fetch(`/api/leads?${params}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then(async (data) => {
+        // Fetch scores for all leads in parallel
+        const leadsWithScores = await Promise.all(
+          (data.leads as LeadRow[]).map(async (lead: LeadRow) => {
+            try {
+              const scoreRes = await fetch(`/api/leads/${lead.id}/score`);
+              if (scoreRes.ok) {
+                const scoreData = await scoreRes.json();
+                return { ...lead, score: scoreData.score?.total ?? null };
+              }
+            } catch {
+              // Score fetch non-critical
+            }
+            return { ...lead, score: null };
+          })
+        );
+
+        setLeads(leadsWithScores);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => {
+        toast("error", "Failed to load leads");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [debouncedQuery, page, filterDept, filterStage, filterSource, filterPriority, filterAssignee, currentUserId, viewMode, toast]);
 
   React.useEffect(() => {
@@ -206,6 +225,7 @@ export default function LeadsPage() {
       }
       toast("success", "Lead created");
       setCreateModalOpen(false);
+      setLoading(true);
       fetchLeads();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to create lead");
@@ -227,6 +247,7 @@ export default function LeadsPage() {
         throw new Error(data.error || "Failed to change stage");
       }
       toast("success", "Stage updated");
+      setLoading(true);
       fetchLeads();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to change stage");

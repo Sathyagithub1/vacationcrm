@@ -5,8 +5,6 @@ import {
   UserPlus,
   Search,
   Mail,
-  Shield,
-  Building2,
   ToggleLeft,
   ToggleRight,
   Pencil,
@@ -144,42 +142,61 @@ export default function UsersPage() {
   }, []);
 
   // Fetch users
-  const fetchUsers = React.useCallback(async () => {
+  // Show the spinner whenever page/search changes (render-phase adjustment
+  // instead of a synchronous setLoading(true) inside the fetch effect).
+  const fetchKey = `${page}|${debouncedQuery}`;
+  const [lastFetchKey, setLastFetchKey] = React.useState(fetchKey);
+  if (fetchKey !== lastFetchKey) {
+    setLastFetchKey(fetchKey);
     setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("page", String(page));
-      params.set("limit", "20");
-      if (debouncedQuery) params.set("q", debouncedQuery);
+  }
 
-      const res = await fetch(`/api/users?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setUsers(data.users);
-      setTotal(data.total);
-      setTotalPages(data.totalPages);
-    } catch {
-      toast("error", "Failed to load users");
-    } finally {
-      setLoading(false);
-    }
+  // Callers outside the effect go through reloadUsers (which sets loading first).
+  const fetchUsers = React.useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("limit", "20");
+    if (debouncedQuery) params.set("q", debouncedQuery);
+
+    return fetch(`/api/users?${params}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setUsers(data.users);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => {
+        toast("error", "Failed to load users");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [page, debouncedQuery, toast]);
 
   React.useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
 
+  function reloadUsers() {
+    setLoading(true);
+    fetchUsers();
+  }
+
   // Fetch invitations
-  const fetchInvitations = React.useCallback(async () => {
-    try {
-      const res = await fetch("/api/invitations");
-      if (res.ok) {
-        const data = await res.json();
-        setInvitations(data.invitations || []);
-      }
-    } catch {
-      // not critical
-    }
+  const fetchInvitations = React.useCallback(() => {
+    return fetch("/api/invitations")
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          setInvitations(data.invitations || []);
+        }
+      })
+      .catch(() => {
+        // not critical
+      });
   }, []);
 
   React.useEffect(() => {
@@ -255,7 +272,7 @@ export default function UsersPage() {
       toast("success", "User updated");
       setEditModalOpen(false);
       setEditTarget(null);
-      fetchUsers();
+      reloadUsers();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed");
     } finally {
@@ -278,7 +295,7 @@ export default function UsersPage() {
         throw new Error(data.error || "Failed");
       }
       toast("success", u.isActive ? "User deactivated" : "User activated");
-      fetchUsers();
+      reloadUsers();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed");
     }

@@ -17,6 +17,34 @@ function isDirtySecret(v: unknown): v is string {
   return typeof v === "string" && v.length > 0 && !MASK_PATTERN.test(v);
 }
 
+const MASKED_EMAIL_CONFIG_KEYS = ["smtpPass", "smsApiKey", "whatsappApiKey"] as const;
+const MASKED_TENANT_KEYS = [
+  "razorpayKeySecret",
+  "razorpayWebhookSecret",
+  "telephonyApiKey",
+  "telephonyApiSecret",
+  "sttApiKey",
+  "ttsApiKey",
+] as const;
+
+/**
+ * Replace every stored secret on a tenant record with the sentinel, in place,
+ * so the wire never carries the (encrypted) value. Used by GET and PUT.
+ */
+function maskTenantSecrets<T extends object>(tenant: T): T {
+  const t = tenant as Record<string, unknown>;
+  const emailConfig = t.emailTemplateConfig as Record<string, unknown> | null | undefined;
+  if (emailConfig) {
+    for (const key of MASKED_EMAIL_CONFIG_KEYS) {
+      if (emailConfig[key]) emailConfig[key] = MASK;
+    }
+  }
+  for (const key of MASKED_TENANT_KEYS) {
+    if (t[key]) t[key] = MASK;
+  }
+  return tenant;
+}
+
 /**
  * GET /api/tenants — Get current tenant info (for use-tenant hook and settings pages).
  *
@@ -68,25 +96,8 @@ export async function GET() {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Mask sensitive credentials in emailTemplateConfig JSON
-    const emailConfig = tenant.emailTemplateConfig as Record<string, unknown> | null;
-    if (emailConfig) {
-      if (emailConfig.smtpPass) emailConfig.smtpPass = MASK;
-      if (emailConfig.smsApiKey) emailConfig.smsApiKey = MASK;
-      if (emailConfig.whatsappApiKey) emailConfig.whatsappApiKey = MASK;
-      (tenant as Record<string, unknown>).emailTemplateConfig = emailConfig;
-    }
-
-    // Mask Phase 6c-6d secret fields — never return the (encrypted) value
-    const t = tenant as Record<string, unknown>;
-    if (t.razorpayKeySecret) t.razorpayKeySecret = MASK;
-    if (t.razorpayWebhookSecret) t.razorpayWebhookSecret = MASK;
-    if (t.telephonyApiKey) t.telephonyApiKey = MASK;
-    if (t.telephonyApiSecret) t.telephonyApiSecret = MASK;
-    if (t.sttApiKey) t.sttApiKey = MASK;
-    if (t.ttsApiKey) t.ttsApiKey = MASK;
-
-    return NextResponse.json({ tenant });
+    // Mask emailTemplateConfig + Phase 6c-6d secrets — never return the (encrypted) value
+    return NextResponse.json({ tenant: maskTenantSecrets(tenant) });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return unauthorized();
@@ -264,7 +275,24 @@ export async function PUT(request: Request) {
     }
 
     if (Object.keys(updateData).length === 0) {
-      return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+      // A secret sent as the masked sentinel means "keep the existing
+      // secret" — the same value GET hands out. A request carrying only such
+      // sentinels is a valid no-op: return the unchanged tenant (masked)
+      // without writing or auditing anything. A body with nothing to apply
+      // (empty, or secrets sent as "") is still a client error.
+      const sentKeepSentinel = [
+        smtpPass, smsApiKey, whatsappApiKey,
+        razorpayKeySecret, razorpayWebhookSecret,
+        telephonyApiKey, telephonyApiSecret, sttApiKey, ttsApiKey,
+      ].some((v) => typeof v === "string" && MASK_PATTERN.test(v));
+      if (!sentKeepSentinel) {
+        return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+      }
+      const unchanged = await prisma.tenant.findUnique({ where: { id: user.tenantId } });
+      if (!unchanged) {
+        return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+      }
+      return NextResponse.json({ tenant: maskTenantSecrets(unchanged) });
     }
 
     const tenant = await prisma.tenant.update({
@@ -296,22 +324,7 @@ export async function PUT(request: Request) {
     // Phase 6h — mask secrets in PUT response so the wire never carries
     // the (encrypted) ciphertext to the client. GET applies the same masking;
     // before this fix PUT silently leaked the v1:... blob in its 200 body.
-    const masked = tenant as Record<string, unknown>;
-    const emailConfig = masked.emailTemplateConfig as Record<string, unknown> | null;
-    if (emailConfig) {
-      if (emailConfig.smtpPass) emailConfig.smtpPass = MASK;
-      if (emailConfig.smsApiKey) emailConfig.smsApiKey = MASK;
-      if (emailConfig.whatsappApiKey) emailConfig.whatsappApiKey = MASK;
-      masked.emailTemplateConfig = emailConfig;
-    }
-    if (masked.razorpayKeySecret) masked.razorpayKeySecret = MASK;
-    if (masked.razorpayWebhookSecret) masked.razorpayWebhookSecret = MASK;
-    if (masked.telephonyApiKey) masked.telephonyApiKey = MASK;
-    if (masked.telephonyApiSecret) masked.telephonyApiSecret = MASK;
-    if (masked.sttApiKey) masked.sttApiKey = MASK;
-    if (masked.ttsApiKey) masked.ttsApiKey = MASK;
-
-    return NextResponse.json({ tenant: masked });
+    return NextResponse.json({ tenant: maskTenantSecrets(tenant) });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Unauthorized") return unauthorized();

@@ -103,8 +103,9 @@ function CustomersInner() {
   // Detail panel state
   const [selectedCustomer, setSelectedCustomer] = React.useState<Customer | null>(null);
   const [customerLeads, setCustomerLeads] = React.useState<Lead[]>([]);
-  const [detailLoading, setDetailLoading] = React.useState(false);
-  const [panelOpen, setPanelOpen] = React.useState(false);
+  // A ?customerId deep link opens the panel (loading) right away on mount.
+  const [detailLoading, setDetailLoading] = React.useState(() => Boolean(initialCustomerId));
+  const [panelOpen, setPanelOpen] = React.useState(() => Boolean(initialCustomerId));
 
   // Keep the browser URL in sync with the current search + open customer,
   // so the view is shareable/bookmarkable. Uses history.replaceState to avoid
@@ -128,29 +129,41 @@ function CustomersInner() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch customers. When `silent` is true, don't flip the full-screen loading
+  // Show the full-screen spinner whenever the search or page changes
+  // (adjust state during render; the initial state covers the first load).
+  const listKey = `${debouncedQuery}|${page}`;
+  const [lastListKey, setLastListKey] = React.useState(listKey);
+  if (listKey !== lastListKey) {
+    setLastListKey(listKey);
+    setLoading(true);
+  }
+
+  // Fetch customers. When `silent` is true, don't touch the full-screen loading
   // spinner — keeps the list visible/live during background refreshes.
   const fetchCustomers = React.useCallback(
-    async (opts?: { silent?: boolean }) => {
+    (opts?: { silent?: boolean }) => {
       const silent = opts?.silent ?? false;
-      if (!silent) setLoading(true);
-      try {
-        const params = new URLSearchParams();
-        if (debouncedQuery) params.set("q", debouncedQuery);
-        params.set("page", String(page));
-        params.set("limit", "20");
+      const params = new URLSearchParams();
+      if (debouncedQuery) params.set("q", debouncedQuery);
+      params.set("page", String(page));
+      params.set("limit", "20");
 
-        const res = await fetch(`/api/customers?${params}`);
-        if (!res.ok) throw new Error("Failed to fetch");
-        const data = await res.json();
-        setCustomers(data.customers);
-        setTotal(data.total);
-        setTotalPages(data.totalPages);
-      } catch {
-        toast("error", "Failed to load customers");
-      } finally {
-        if (!silent) setLoading(false);
-      }
+      return fetch(`/api/customers?${params}`)
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed to fetch");
+          return res.json();
+        })
+        .then((data) => {
+          setCustomers(data.customers);
+          setTotal(data.total);
+          setTotalPages(data.totalPages);
+        })
+        .catch(() => {
+          toast("error", "Failed to load customers");
+        })
+        .finally(() => {
+          if (!silent) setLoading(false);
+        });
     },
     [debouncedQuery, page, toast]
   );
@@ -165,26 +178,34 @@ function CustomersInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
-  // Fetch a customer's details by id and populate the detail panel.
-  const loadDetailById = React.useCallback(
-    async (id: string, seed?: Customer) => {
-      if (seed) setSelectedCustomer(seed);
-      setPanelOpen(true);
-      setDetailLoading(true);
-      try {
-        const res = await fetch(`/api/customers/${id}`);
-        if (!res.ok) throw new Error("Failed to fetch");
-        const data = await res.json();
-        setSelectedCustomer(data.customer);
-        setCustomerLeads(data.leads);
-      } catch {
-        toast("error", "Failed to load customer details");
-      } finally {
-        setDetailLoading(false);
-      }
-    },
+  // Fetch a customer's details by id into the (already open, loading) detail panel.
+  const fetchCustomerDetail = React.useCallback(
+    (id: string) =>
+      fetch(`/api/customers/${id}`)
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed to fetch");
+          return res.json();
+        })
+        .then((data) => {
+          setSelectedCustomer(data.customer);
+          setCustomerLeads(data.leads);
+        })
+        .catch(() => {
+          toast("error", "Failed to load customer details");
+        })
+        .finally(() => {
+          setDetailLoading(false);
+        }),
     [toast]
   );
+
+  // Open the detail panel (loading) and populate it.
+  function loadDetailById(id: string, seed?: Customer) {
+    if (seed) setSelectedCustomer(seed);
+    setPanelOpen(true);
+    setDetailLoading(true);
+    fetchCustomerDetail(id);
+  }
 
   // Open detail panel for a customer (from the list) — the panel is an overlay,
   // so this never blanks the underlying list.
@@ -199,10 +220,11 @@ function CustomersInner() {
     syncUrl(debouncedQuery, null);
   }
 
-  // On mount: if ?customerId is present, auto-open that customer's detail panel.
+  // On mount: if ?customerId is present, load that customer's detail panel
+  // (the panel is already initialised open + loading from the deep link).
   React.useEffect(() => {
     if (initialCustomerId) {
-      loadDetailById(initialCustomerId);
+      fetchCustomerDetail(initialCustomerId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

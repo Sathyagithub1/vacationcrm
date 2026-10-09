@@ -58,7 +58,7 @@ export const scheduleCallbackTool: AITool = {
     }
 
     try {
-      const callback = await (ctx.db.callback.create as Function)({
+      const callback = await ctx.db.callback.create({
         data: {
           tenantId: ctx.tenantId,
           leadId: conversation.leadId,

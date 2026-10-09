@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState, useCallback } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -143,12 +143,17 @@ function WidgetChatInner() {
   const dept = searchParams.get("dept") ?? "";
 
   const [config, setConfig] = useState<WidgetConfig | null>(null);
-  const [configError, setConfigError] = useState<string | null>(null);
-  const [loadingConfig, setLoadingConfig] = useState(true);
+  const [fetchError, setConfigError] = useState<string | null>(null);
+  const [fetchingConfig, setLoadingConfig] = useState(true);
 
-  const [visitorToken, setVisitorToken] = useState<string | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [sessionReady, setSessionReady] = useState(false);
+  // Missing URL params are known during render — no need to round-trip through an effect.
+  const missingParams = !tenant || !dept;
+  const configError = missingParams ? "Missing tenant or dept parameter." : fetchError;
+  const loadingConfig = !missingParams && fetchingConfig;
+
+  const [createdVisitorToken, setVisitorToken] = useState<string | null>(null);
+  const [createdConversationId, setConversationId] = useState<string | null>(null);
+  const [createdSessionReady, setSessionReady] = useState(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -163,7 +168,7 @@ function WidgetChatInner() {
   // Pre-chat capture-gate state. `gatePassed` becomes true once the visitor has
   // satisfied whatever gates are enabled (contact form + consent), or immediately
   // if neither gate is enabled / it was already satisfied on a prior visit.
-  const [gatePassed, setGatePassed] = useState(false);
+  const [gateSubmitted, setGatePassed] = useState(false);
   const [capturedContact, setCapturedContact] = useState<CapturedContact | null>(null);
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
@@ -171,31 +176,33 @@ function WidgetChatInner() {
   const [consentChecked, setConsentChecked] = useState(false);
   const [gateError, setGateError] = useState<string | null>(null);
 
-  // Decide whether the pre-chat gate must be shown once config loads.
-  useEffect(() => {
-    if (!config || !tenant || !dept) return;
+  // Decide whether the pre-chat gate can be skipped once config loads (derived, not
+  // effect-synced). Config only exists client-side, so the localStorage read never
+  // runs during SSR.
+  const gateAutoPassed = useMemo(() => {
+    if (!config || !tenant || !dept) return false;
     const settings = resolveCaptureSettings(config);
     const needsGate = settings.requireContactInfo || settings.requireConsent;
     // If no gate is configured, or the visitor already passed the contact gate
     // in a previous session (and no fresh consent is required), pass immediately.
-    if (!needsGate) {
-      setGatePassed(true);
-      return;
-    }
-    if (settings.requireContactInfo && !settings.requireConsent && getStoredContactGate(tenant, dept)) {
-      setGatePassed(true);
-      return;
-    }
-    setGatePassed(false);
+    if (!needsGate) return true;
+    return settings.requireContactInfo && !settings.requireConsent && getStoredContactGate(tenant, dept);
   }, [config, tenant, dept]);
+  const gatePassed = gateAutoPassed || gateSubmitted;
+
+  // Attempt to reuse an existing session from localStorage once the gate is passed.
+  const resumedSession = useMemo(() => {
+    if (!config || !tenant || !dept || !gatePassed) return null;
+    const stored = getStoredSession(tenant, dept);
+    return stored?.token && stored?.conversationId ? stored : null;
+  }, [config, tenant, dept, gatePassed]);
+  const visitorToken = resumedSession ? resumedSession.token : createdVisitorToken;
+  const conversationId = resumedSession ? resumedSession.conversationId : createdConversationId;
+  const sessionReady = resumedSession ? true : createdSessionReady;
 
   // ── Load widget config ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!tenant || !dept) {
-      setConfigError("Missing tenant or dept parameter.");
-      setLoadingConfig(false);
-      return;
-    }
+    if (!tenant || !dept) return;
 
     fetch(`/api/widget/config?tenant=${encodeURIComponent(tenant)}&dept=${encodeURIComponent(dept)}`)
       .then((r) => {
@@ -218,14 +225,8 @@ function WidgetChatInner() {
 
     const visitorId = generateVisitorId();
 
-    // Attempt to reuse existing session from localStorage
-    const stored = getStoredSession(tenant, dept);
-    if (stored?.token && stored?.conversationId) {
-      setVisitorToken(stored.token);
-      setConversationId(stored.conversationId);
-      setSessionReady(true);
-      return;
-    }
+    // An existing session from localStorage is reused (see resumedSession above).
+    if (resumedSession) return;
 
     fetch("/api/widget/session", {
       method: "POST",
@@ -263,7 +264,7 @@ function WidgetChatInner() {
       .catch(() => {
         setConfigError("Could not start chat session. Please refresh and try again.");
       });
-  }, [config, tenant, dept, gatePassed, capturedContact]);
+  }, [config, tenant, dept, gatePassed, capturedContact, resumedSession]);
 
   // ── Load history once session is ready ────────────────────────────────────
   useEffect(() => {

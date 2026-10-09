@@ -267,7 +267,7 @@ recordings to GCS and using `audio.uri` for all calls.
 
 ### B8 — LOAD_BALANCED strategy variance under concurrent burst
 
-**Status:** PARTIALLY_RESOLVED (Phase 6e) — commit `c73f303`
+**Status:** RESOLVED — v1 `c73f303` (lock around SELECT); v2 holds the lock through the Lead.assignedTo claim, closing the residual gap below (load test: exactly 20 per agent, 10/10 runs).
 
 **What was done:**
 - `loadBalanced` now wraps the SELECT in `prisma.$transaction` with

@@ -29,7 +29,7 @@ export async function GET(
 ) {
   try {
     const { id: customerId } = await params;
-    const { db, user } = await requirePermission("conversations:read");
+    const { db } = await requirePermission("conversations:read");
 
     // Verify customer belongs to tenant
     const customer = await db.customer.findFirst({ where: { id: customerId } });

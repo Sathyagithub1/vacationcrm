@@ -4,7 +4,7 @@
  * Note: summarizeConversation is tested via mocked AI provider.
  */
 
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { appendMemory, getCustomerContext } from "./customer-memory";
 

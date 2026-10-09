@@ -60,32 +60,54 @@ function SortableWidget({
   const [data, setData] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams({ dataSource: widget.dataSource });
-      const filters = widget.filters;
-      if (filters?.departmentId) params.set("departmentId", filters.departmentId);
-      if (filters?.dateFrom) params.set("dateFrom", filters.dateFrom);
-      if (filters?.dateTo) params.set("dateTo", filters.dateTo);
+  // Show the spinner again whenever the effect below will refetch because its
+  // inputs changed (adjusted during render rather than inside the effect).
+  const [lastFetchInputs, setLastFetchInputs] = useState({
+    dataSource: widget.dataSource,
+    filters: widget.filters,
+    refreshInterval: widget.refreshInterval,
+  });
+  if (
+    lastFetchInputs.dataSource !== widget.dataSource ||
+    lastFetchInputs.filters !== widget.filters ||
+    lastFetchInputs.refreshInterval !== widget.refreshInterval
+  ) {
+    setLastFetchInputs({
+      dataSource: widget.dataSource,
+      filters: widget.filters,
+      refreshInterval: widget.refreshInterval,
+    });
+    setLoading(true);
+  }
 
-      const res = await fetch(`/api/widgets/data?${params}`);
-      if (res.ok) {
-        const json = await res.json();
-        setData(json.data);
-      }
-    } catch {
-      // Keep previous data on error
-    } finally {
-      setLoading(false);
-    }
+  const fetchData = useCallback(() => {
+    const params = new URLSearchParams({ dataSource: widget.dataSource });
+    const filters = widget.filters;
+    if (filters?.departmentId) params.set("departmentId", filters.departmentId);
+    if (filters?.dateFrom) params.set("dateFrom", filters.dateFrom);
+    if (filters?.dateTo) params.set("dateTo", filters.dateTo);
+
+    return fetch(`/api/widgets/data?${params}`)
+      .then(async (res) => {
+        if (res.ok) {
+          const json = await res.json();
+          setData(json.data);
+        }
+      })
+      .catch(() => {
+        // Keep previous data on error
+      })
+      .finally(() => setLoading(false));
   }, [widget.dataSource, widget.filters]);
 
   useEffect(() => {
     fetchData();
 
-    // Auto-refresh
-    const interval = setInterval(fetchData, (widget.refreshInterval || 300) * 1000);
+    // Auto-refresh (shows the spinner while refreshing, as before)
+    const interval = setInterval(() => {
+      setLoading(true);
+      fetchData();
+    }, (widget.refreshInterval || 300) * 1000);
     return () => clearInterval(interval);
   }, [fetchData, widget.refreshInterval]);
 

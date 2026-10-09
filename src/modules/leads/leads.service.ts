@@ -1,6 +1,8 @@
 import { findOrCreateCustomer, updateCustomerStats } from "@/modules/customers/customers.service";
 import { addFollowUpRulesJob } from "@/lib/queue";
 
+import type { LeadPriority, LeadSource } from "@prisma/client";
+
 type TenantDb = ReturnType<typeof import("@/lib/prisma").tenantPrisma>;
 
 interface CreateLeadData {
@@ -12,8 +14,8 @@ interface CreateLeadData {
   travelDate?: string | null;
   numPassengers?: number | null;
   specialRequirement?: string | null;
-  source?: string;
-  priority?: string;
+  source?: LeadSource;
+  priority?: LeadPriority;
   assignedTo?: string | null;
   isFutureInterest?: boolean;
   tenantId: string;
@@ -24,14 +26,14 @@ interface UpdateLeadData {
   travelDate?: string | null;
   numPassengers?: number | null;
   specialRequirement?: string | null;
-  source?: string;
-  priority?: string;
+  source?: LeadSource;
+  priority?: LeadPriority;
   isFutureInterest?: boolean;
   departmentId?: string;
 }
 
 export async function createLead(db: TenantDb, data: CreateLeadData, userId: string) {
-  return await (db.$transaction as Function)(async (tx: TenantDb) => {
+  return await db.$transaction(async (tx) => {
     // Find or create the customer
     const customer = await findOrCreateCustomer(tx, {
       name: data.customerName,
@@ -63,8 +65,9 @@ export async function createLead(db: TenantDb, data: CreateLeadData, userId: str
       throw new Error("No pipeline stages configured. Please create pipeline stages first.");
     }
 
-    const lead = await (tx.lead.create as Function)({
+    const lead = await tx.lead.create({
       data: {
+        tenantId: data.tenantId,
         departmentId: data.departmentId,
         customerId: customer.id,
         destination: data.destination || null,
@@ -80,8 +83,9 @@ export async function createLead(db: TenantDb, data: CreateLeadData, userId: str
     });
 
     // Create SYSTEM activity "Lead created"
-    await (tx.leadActivity.create as Function)({
+    await tx.leadActivity.create({
       data: {
+        tenantId: data.tenantId,
         leadId: lead.id,
         userId,
         type: "SYSTEM",
@@ -118,8 +122,9 @@ export async function updateLead(db: TenantDb, leadId: string, data: UpdateLeadD
   // Create activity for update
   const changedFields = Object.keys(updateData);
   if (changedFields.length > 0) {
-    await (db.leadActivity.create as Function)({
+    await db.leadActivity.create({
       data: {
+        tenantId: lead.tenantId,
         leadId: lead.id,
         userId,
         type: "SYSTEM",
@@ -149,8 +154,9 @@ export async function changeStage(db: TenantDb, leadId: string, newStageId: stri
   });
 
   // Create STAGE_CHANGE activity
-  await (db.leadActivity.create as Function)({
+  await db.leadActivity.create({
     data: {
+      tenantId: lead.tenantId,
       leadId: lead.id,
       userId,
       type: "STAGE_CHANGE",
@@ -176,8 +182,9 @@ export async function addNote(db: TenantDb, leadId: string, content: string, use
   const existing = await db.lead.findFirst({ where: { id: leadId } });
   if (!existing) throw new Error("Lead not found");
 
-  const activity = await (db.leadActivity.create as Function)({
+  const activity = await db.leadActivity.create({
     data: {
+      tenantId: existing.tenantId,
       leadId,
       userId,
       type: "NOTE",

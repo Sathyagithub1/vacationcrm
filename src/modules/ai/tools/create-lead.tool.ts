@@ -1,3 +1,4 @@
+import type { LeadPriority } from "@prisma/client";
 import { createLead } from "@/modules/leads/leads.service";
 import type { AITool, ToolContext, ToolResult } from "./tool.interface";
 
@@ -76,7 +77,7 @@ export const createLeadTool: AITool = {
       travelDate?: string;
       numPassengers?: number;
       specialRequirement?: string;
-      priority?: string;
+      priority?: LeadPriority;
       isFutureInterest?: boolean;
     };
 

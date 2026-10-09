@@ -70,14 +70,15 @@ export function MarkAsSpamModal({
   const [loadingDepts, setLoadingDepts] = React.useState(true);
   const [submitting,   setSubmitting]   = React.useState(false);
 
-  // Re-init pre-fills when modal opens
-  React.useEffect(() => {
+  // Re-init pre-fills when modal opens (adjusted during render when `open` flips).
+  const [prevOpen, setPrevOpen] = React.useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setSelectedChannels(senderChannels);
       setSelectedDepts(leadDeptId ? [leadDeptId] : []);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }
 
   React.useEffect(() => {
     async function fetchDepts() {

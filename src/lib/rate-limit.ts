@@ -95,7 +95,7 @@ export async function checkRateLimit(
     windowMs?: number;
   }
 ): Promise<NextResponse | null> {
-  const userId = extractUserId(request);
+  const userId = extractUserId();
   const identifier = opts?.identifier || userId || getClientIp(request) || "anonymous";
   const limit = opts?.limit ?? 100;
   const windowMs = opts?.windowMs ?? 60_000; // 1 minute default
@@ -163,7 +163,7 @@ function getClientIp(request: Request): string | null {
   return null;
 }
 
-function extractUserId(request: Request): string | null {
+function extractUserId(): string | null {
   // Try to get user ID from authorization or session cookie
   // This is a best-effort extraction for rate limiting purposes
   // The actual auth check happens in the route handler

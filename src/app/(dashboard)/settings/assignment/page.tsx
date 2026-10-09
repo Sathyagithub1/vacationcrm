@@ -51,7 +51,6 @@ export default function AssignmentStrategyPage() {
   const [saving,   setSaving]   = React.useState(false);
 
   const [strategy, setStrategy] = React.useState<StrategyType | "">("");
-  const [config,   setConfig]   = React.useState<StrategyConfig>({});
   const [pools,    setPools]    = React.useState<AssignmentPool[]>([]);
   const [agents,   setAgents]   = React.useState<Agent[]>([]);
 
@@ -69,56 +68,58 @@ export default function AssignmentStrategyPage() {
   // ROUND_ROBIN / LOAD_BALANCED: selected agent IDs
   const [selectedAgents, setSelectedAgents] = React.useState<string[]>([]);
 
-  async function loadAll() {
-    setLoading(true);
-    try {
-      const [stratRes, poolsRes, agentsRes] = await Promise.all([
-        fetch("/api/assignment-strategy"),
-        fetch("/api/assignment-pools?limit=100"),
-        fetch("/api/users/agents"),
-      ]);
+  // Mount-only loader; `loading` starts true, so no synchronous setLoading(true).
+  function loadAll() {
+    return Promise.all([
+      fetch("/api/assignment-strategy"),
+      fetch("/api/assignment-pools?limit=100"),
+      fetch("/api/users/agents"),
+    ])
+      .then(applyLoaded)
+      .catch(() => {
+        toast("error", "Failed to load assignment settings");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
 
-      if (stratRes.ok) {
-        const data: { strategy: { type: StrategyType; config: StrategyConfig } | null } =
-          await stratRes.json();
-        if (data.strategy) {
-          setStrategy(data.strategy.type);
-          setConfig(data.strategy.config ?? {});
-          if (data.strategy.config?.skillWeights) {
-            const entries = Object.entries(data.strategy.config.skillWeights);
-            setSkillWeights(entries.map(([skill, weight]) => ({ skill, weight })));
-          }
-          if (data.strategy.config?.lowCutoff !== undefined) {
-            setLowCutoff(data.strategy.config.lowCutoff);
-          }
-          if (data.strategy.config?.highCutoff !== undefined) {
-            setHighCutoff(data.strategy.config.highCutoff);
-          }
-          if (data.strategy.config?.tiers) {
-            const tierArr = data.strategy.config.tiers;
-            setTierCount(tierArr.length >= 3 ? 3 : 2);
-            const newTiers: Record<string, number> = {};
-            tierArr.forEach((group, idx) => {
-              group.forEach((agentId) => { newTiers[agentId] = idx; });
-            });
-            setAgentTiers(newTiers);
-          }
+  async function applyLoaded([stratRes, poolsRes, agentsRes]: Response[]) {
+    if (stratRes.ok) {
+      const data: { strategy: { type: StrategyType; config: StrategyConfig } | null } =
+        await stratRes.json();
+      if (data.strategy) {
+        setStrategy(data.strategy.type);
+        if (data.strategy.config?.skillWeights) {
+          const entries = Object.entries(data.strategy.config.skillWeights);
+          setSkillWeights(entries.map(([skill, weight]) => ({ skill, weight })));
+        }
+        if (data.strategy.config?.lowCutoff !== undefined) {
+          setLowCutoff(data.strategy.config.lowCutoff);
+        }
+        if (data.strategy.config?.highCutoff !== undefined) {
+          setHighCutoff(data.strategy.config.highCutoff);
+        }
+        if (data.strategy.config?.tiers) {
+          const tierArr = data.strategy.config.tiers;
+          setTierCount(tierArr.length >= 3 ? 3 : 2);
+          const newTiers: Record<string, number> = {};
+          tierArr.forEach((group, idx) => {
+            group.forEach((agentId) => { newTiers[agentId] = idx; });
+          });
+          setAgentTiers(newTiers);
         }
       }
+    }
 
-      if (poolsRes.ok) {
-        const data: { pools: AssignmentPool[] } = await poolsRes.json();
-        setPools(data.pools ?? []);
-      }
+    if (poolsRes.ok) {
+      const data: { pools: AssignmentPool[] } = await poolsRes.json();
+      setPools(data.pools ?? []);
+    }
 
-      if (agentsRes.ok) {
-        const data: { agents: Agent[] } = await agentsRes.json();
-        setAgents(data.agents ?? []);
-      }
-    } catch {
-      toast("error", "Failed to load assignment settings");
-    } finally {
-      setLoading(false);
+    if (agentsRes.ok) {
+      const data: { agents: Agent[] } = await agentsRes.json();
+      setAgents(data.agents ?? []);
     }
   }
 

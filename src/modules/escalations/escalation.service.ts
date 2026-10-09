@@ -1,9 +1,11 @@
+import type { EscalationReason } from "@prisma/client";
+
 type TenantDb = ReturnType<typeof import("@/lib/prisma").tenantPrisma>;
 
 interface CreateEscalationData {
   leadId: string;
   conversationId?: string | null;
-  reason: string;
+  reason: EscalationReason;
   escalatedFrom: string;
   escalatedTo: string;
   notes?: string | null;
@@ -28,8 +30,9 @@ export async function createEscalation(db: TenantDb, data: CreateEscalationData)
     if (!conversation) throw new Error("Conversation not found");
   }
 
-  const escalation = await (db.escalation.create as Function)({
+  const escalation = await db.escalation.create({
     data: {
+      tenantId: db.$tenantId,
       leadId: data.leadId,
       conversationId: data.conversationId || null,
       reason: data.reason,

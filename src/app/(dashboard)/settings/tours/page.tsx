@@ -166,39 +166,55 @@ export default function ToursListPage() {
   const [importResults, setImportResults] = React.useState<{ created: number; failed: number; total: number; results: ImportResult[] } | null>(null);
   const [parseError, setParseError] = React.useState("");
 
-  async function fetchTours(p: number, status: string) {
+  // Show the spinner when the status filter changes (render-phase adjustment
+  // instead of a synchronous setLoading(true) inside the fetch effect).
+  const [lastStatusFilter, setLastStatusFilter] = React.useState(statusFilter);
+  if (statusFilter !== lastStatusFilter) {
+    setLastStatusFilter(statusFilter);
     setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        page:  String(p),
-        limit: String(PAGE_SIZE),
-      });
-      if (status) params.set("status", status);
-
-      const res = await fetch(`/api/tours?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to load tours");
-      const data: ApiResponse = await res.json();
-      setTours(data.tours);
-      setTotal(data.total);
-      setPage(data.page);
-      setTotalPages(data.totalPages);
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to load tours");
-    } finally {
-      setLoading(false);
-    }
   }
 
-  const fetchDepartments = React.useCallback(async () => {
-    try {
-      const res = await fetch("/api/departments");
-      if (res.ok) {
-        const json = await res.json();
-        setDepartments(json.departments || []);
-      }
-    } catch {
-      // non-fatal
-    }
+  // Callers outside the effect go through reloadTours (which sets loading first).
+  function fetchTours(p: number, status: string) {
+    const params = new URLSearchParams({
+      page:  String(p),
+      limit: String(PAGE_SIZE),
+    });
+    if (status) params.set("status", status);
+
+    return fetch(`/api/tours?${params.toString()}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to load tours");
+        const data: ApiResponse = await res.json();
+        setTours(data.tours);
+        setTotal(data.total);
+        setPage(data.page);
+        setTotalPages(data.totalPages);
+      })
+      .catch((err) => {
+        toast("error", err instanceof Error ? err.message : "Failed to load tours");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
+
+  function reloadTours(p: number, status: string) {
+    setLoading(true);
+    fetchTours(p, status);
+  }
+
+  const fetchDepartments = React.useCallback(() => {
+    return fetch("/api/departments")
+      .then(async (res) => {
+        if (res.ok) {
+          const json = await res.json();
+          setDepartments(json.departments || []);
+        }
+      })
+      .catch(() => {
+        // non-fatal
+      });
   }, []);
 
   React.useEffect(() => {
@@ -244,7 +260,7 @@ export default function ToursListPage() {
       toast("success", `Tour "${newName.trim()}" created`);
       setShowNew(false);
       setNewName(""); setNewCode(""); setNewCap(20); setNewDept(""); setNewStart(""); setNewEnd("");
-      fetchTours(1, statusFilter);
+      reloadTours(1, statusFilter);
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to create tour");
     } finally {
@@ -310,7 +326,7 @@ export default function ToursListPage() {
       setImportResults(data);
       if (data.created > 0) {
         toast("success", `Imported ${data.created} tour${data.created === 1 ? "" : "s"}`);
-        fetchTours(1, statusFilter);
+        reloadTours(1, statusFilter);
       }
       if (data.failed > 0) {
         toast("warning", `${data.failed} row${data.failed === 1 ? "" : "s"} failed — see details`);
@@ -437,7 +453,7 @@ export default function ToursListPage() {
           <Pagination
             currentPage={page}
             totalPages={totalPages}
-            onPageChange={(p) => fetchTours(p, statusFilter)}
+            onPageChange={(p) => reloadTours(p, statusFilter)}
           />
         </div>
       )}

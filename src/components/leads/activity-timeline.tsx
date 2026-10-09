@@ -8,7 +8,6 @@ import {
   Mail,
   Info,
 } from "lucide-react";
-import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 
 const typeIcons: Record<string, React.ReactNode> = {

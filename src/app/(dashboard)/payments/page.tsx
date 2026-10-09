@@ -6,7 +6,6 @@ import {
   X,
   Phone,
   Mail,
-  CreditCard,
   RotateCcw,
   CheckCircle2,
   Clock,
@@ -151,25 +150,38 @@ export default function PaymentsPage() {
   const [refundAmount, setRefundAmount] = React.useState("");
   const [refunding, setRefunding] = React.useState(false);
 
-  const fetchPayments = React.useCallback(async () => {
+  // Show the spinner whenever the filter/page changes (render-phase adjustment
+  // instead of a synchronous setLoading(true) inside the fetch effect).
+  const fetchKey = `${statusFilter}|${page}`;
+  const [lastFetchKey, setLastFetchKey] = React.useState(fetchKey);
+  if (fetchKey !== lastFetchKey) {
+    setLastFetchKey(fetchKey);
     setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (statusFilter) params.set("status", statusFilter);
-      params.set("page", String(page));
-      params.set("limit", "20");
-      const res = await fetch(`/api/payments?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setPayments(data.payments);
-      setSummary(data.summary ?? null);
-      setTotal(data.total);
-      setTotalPages(data.totalPages);
-    } catch {
-      toast("error", "Failed to load payments");
-    } finally {
-      setLoading(false);
-    }
+  }
+
+  // Callers outside the effect must setLoading(true) before invoking.
+  const fetchPayments = React.useCallback(() => {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set("status", statusFilter);
+    params.set("page", String(page));
+    params.set("limit", "20");
+    return fetch(`/api/payments?${params}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setPayments(data.payments);
+        setSummary(data.summary ?? null);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => {
+        toast("error", "Failed to load payments");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [statusFilter, page, toast]);
 
   React.useEffect(() => {
@@ -230,6 +242,7 @@ export default function PaymentsPage() {
       setRefundOpen(false);
       // Reflect the new REFUND_PENDING status immediately, then refresh.
       setSelected((p) => (p ? { ...p, status: "REFUND_PENDING" } : p));
+      setLoading(true);
       fetchPayments();
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Refund failed");

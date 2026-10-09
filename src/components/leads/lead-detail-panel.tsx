@@ -279,19 +279,21 @@ function LeadAttachments({ leadId }: { leadId: string }) {
   const [error, setError] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  const fetchFiles = React.useCallback(async () => {
-    try {
-      const res = await fetch(`/api/uploads?leadId=${leadId}`);
-      if (res.ok) {
-        const data = await res.json();
-        setFiles(data.files || []);
-      }
-    } catch {
-      // silent
-    } finally {
-      setLoading(false);
-    }
-  }, [leadId]);
+  const fetchFiles = React.useCallback(
+    () =>
+      fetch(`/api/uploads?leadId=${leadId}`)
+        .then(async (res) => {
+          if (res.ok) {
+            const data = await res.json();
+            setFiles(data.files || []);
+          }
+        })
+        .catch(() => {
+          // silent
+        })
+        .finally(() => setLoading(false)),
+    [leadId]
+  );
 
   React.useEffect(() => {
     fetchFiles();

@@ -75,8 +75,9 @@ export async function POST(request: NextRequest) {
     const fileUrl = `/${result.filePath}`;
 
     // Save customer message referencing the uploaded file
-    const message = await (db.message.create as Function)({
+    const message = await db.message.create({
       data: {
+        tenantId: tenantId,
         conversationId: convId,
         senderType: "CUSTOMER",
         senderId: null,

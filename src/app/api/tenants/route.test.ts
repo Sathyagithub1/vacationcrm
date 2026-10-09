@@ -217,6 +217,23 @@ describe("Phase 6g — tenant credential encryption + masking", () => {
       expect(decryptCredential(tenant!.razorpayKeySecret!)).toBe("original-secret");
     });
 
+    it("treats a sentinel-only PUT as a no-op: masked tenant back, no write, no audit", async () => {
+      const { encryptCredential } = await import("@/lib/crypto/credential-encryption");
+      await seedTenant({ razorpayKeySecret: encryptCredential("original-secret") });
+      setAdminSession();
+      const before = await prisma.tenant.findUnique({ where: { id: T_ID } });
+
+      const res = await PUT(putReq({ razorpayKeySecret: MASK, sttApiKey: MASK }));
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { tenant: Record<string, unknown> };
+      expect(json.tenant.id).toBe(T_ID);
+      expect(json.tenant.razorpayKeySecret).toBe(MASK);
+
+      const after = await prisma.tenant.findUnique({ where: { id: T_ID } });
+      expect(after?.updatedAt.getTime()).toBe(before?.updatedAt.getTime());
+      expect(await prisma.auditLog.count({ where: { tenantId: T_ID, action: "tenant.update" } })).toBe(0);
+    });
+
     it("stores Exotel JSON-shaped credentials as a single encrypted blob", async () => {
       await seedTenant();
       setAdminSession();

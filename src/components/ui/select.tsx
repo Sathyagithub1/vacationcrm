@@ -17,7 +17,8 @@ export interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectE
 
 const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   ({ className, label, options, placeholder, error, id, disabled, ...props }, ref) => {
-    const selectId = id || React.useId();
+    const generatedId = React.useId();
+    const selectId = id || generatedId;
 
     return (
       <div className="w-full">

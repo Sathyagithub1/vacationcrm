@@ -21,7 +21,7 @@ const VALID_SCOPES = new Set(["CUSTOMER", "LEAD", "BOTH"]);
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, db } = await requireAuth();
+    const { db } = await requireAuth();
 
     // All roles can view tags (used for lead/customer tagging everywhere)
     const { searchParams } = request.nextUrl;

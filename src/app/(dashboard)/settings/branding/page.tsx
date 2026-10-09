@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { ColorPicker } from "@/components/ui/color-picker";
 import { useToast } from "@/components/ui/toast";
 import { Spinner } from "@/components/ui/loading";
-import { Upload, X, Image as ImageIcon } from "lucide-react";
+import { Upload, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ThemePreset {

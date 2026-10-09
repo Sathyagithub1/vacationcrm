@@ -48,7 +48,7 @@ export function getRedis(): Redis | null {
  * Will throw at access time if REDIS_URL is unconfigured.
  */
 export const redis: Redis = new Proxy({} as Redis, {
-  get(_target, prop, receiver) {
+  get(_target, prop) {
     const instance = getRedis();
     if (!instance) {
       throw new Error(

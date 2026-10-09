@@ -140,7 +140,6 @@ describe("buildSnippet() — browser runtime (requires jsdom)", () => {
   function evalSnippet(fetchMock: ReturnType<typeof vi.fn>) {
     // Replace global.fetch so the IIFE's fetch() call uses our mock.
     vi.stubGlobal("fetch", fetchMock);
-    // eslint-disable-next-line no-eval
     eval(buildSnippet(TOKEN, BASE));
   }
 

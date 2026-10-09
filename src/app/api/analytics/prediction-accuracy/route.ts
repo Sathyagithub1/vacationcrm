@@ -4,7 +4,7 @@ import { getPredictionAccuracy } from "@/modules/analytics/prediction.service";
 
 // GET /api/analytics/prediction-accuracy — compare accepted predictions vs outcomes
 // Returns overall accuracy percentage and a per-type breakdown
-export async function GET(_request: Request) {
+export async function GET() {
   try {
     const { user, db } = await requirePermission("reports:view");
 

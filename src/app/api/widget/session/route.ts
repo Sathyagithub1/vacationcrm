@@ -111,13 +111,13 @@ export async function POST(request: NextRequest) {
 
     // Look for an existing open WEBSITE conversation for this visitor in this department.
     // Department agents are used as the scope filter for existing conversations.
-    const deptAgentIds = await (db.user.findMany as Function)({
+    const deptAgentIds = await db.user.findMany({
       where: { departmentId: department.id, isActive: true },
       select: { id: true },
     }) as Array<{ id: string }>;
     const deptAgentIdSet = deptAgentIds.map((u: { id: string }) => u.id);
 
-    const existingConversation = await (db.conversation.findFirst as Function)({
+    const existingConversation = await db.conversation.findFirst({
       where: {
         channel: "WEBSITE",
         status: { in: ["ACTIVE", "HUMAN_TAKEOVER"] },
@@ -135,14 +135,14 @@ export async function POST(request: NextRequest) {
       // Resolve least-loaded agent: AGENT role first, fall back to DEPT_MANAGER, then COMPANY_ADMIN
       type AgentRow = { id: string; role: string; _count?: { conversations: number } };
 
-      const candidates = await (db.user.findMany as Function)({
+      const candidates = await db.user.findMany({
         where: { departmentId: department.id, isActive: true, role: { in: ["AGENT", "DEPT_MANAGER"] } },
         select: { id: true, role: true },
       }) as AgentRow[];
 
       if (candidates.length === 0) {
         // Fall back to any COMPANY_ADMIN for this tenant
-        const admins = await (db.user.findMany as Function)({
+        const admins = await db.user.findMany({
           where: { role: "COMPANY_ADMIN", isActive: true },
           select: { id: true, role: true },
           take: 1,
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
       if (candidates.length > 0) {
         // Pick least-loaded: count their open WEBSITE conversations
         type LoadRow = { assignedAgentId: string; _count: { id: number } };
-        const loadCounts = await (db.conversation.groupBy as Function)({
+        const loadCounts = await db.conversation.groupBy({
           by: ["assignedAgentId"],
           where: {
             assignedAgentId: { in: candidates.map((c: AgentRow) => c.id) },
@@ -178,8 +178,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const conversation = existingConversation ?? (await (db.conversation.create as Function)({
+    const conversation = existingConversation ?? (await db.conversation.create({
       data: {
+        tenantId: tenant.id,
         channel: "WEBSITE",
         status: "ACTIVE",
         ...(customerId ? { customerId } : {}),

@@ -22,31 +22,34 @@ export default function DashboardPage() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const fetchWidgets = useCallback(async () => {
-    try {
-      const res = await fetch("/api/widgets");
-      if (res.ok) {
-        const json = await res.json();
-        setWidgets(json.widgets || []);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const fetchWidgets = useCallback(
+    () =>
+      fetch("/api/widgets")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (json) setWidgets(json.widgets || []);
+        })
+        .catch(() => {
+          // silently fail
+        })
+        .finally(() => {
+          setLoading(false);
+        }),
+    []
+  );
 
-  const fetchDepartments = useCallback(async () => {
-    try {
-      const res = await fetch("/api/departments");
-      if (res.ok) {
-        const json = await res.json();
-        setDepartments(json.departments || []);
-      }
-    } catch {
-      // silently fail
-    }
-  }, []);
+  const fetchDepartments = useCallback(
+    () =>
+      fetch("/api/departments")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (json) setDepartments(json.departments || []);
+        })
+        .catch(() => {
+          // silently fail
+        }),
+    []
+  );
 
   useEffect(() => {
     fetchWidgets();

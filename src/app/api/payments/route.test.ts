@@ -82,7 +82,7 @@ describe("POST /api/payments", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("creates a Razorpay order and Payment row, returns order details", async () => {
-    const db = makeMockSession();
+    makeMockSession();
 
     mockCustomerFindFirst.mockResolvedValue({ id: "cust-1", name: "Alice", mobile: "9999999999" });
     mockCreateOrder.mockResolvedValue({
@@ -151,7 +151,7 @@ describe("GET /api/payments", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns paginated payments list with tenant scoping", async () => {
-    const db = makeMockSession();
+    makeMockSession();
 
     mockPaymentFindMany.mockResolvedValue([
       { id: "p1", status: "CAPTURED", amountPaise: 50000 },
@@ -174,7 +174,7 @@ describe("GET /api/payments", () => {
   });
 
   it("filters by status query param", async () => {
-    const db = makeMockSession();
+    makeMockSession();
 
     mockPaymentFindMany.mockResolvedValue([{ id: "p1", status: "CAPTURED" }]);
     mockPaymentCount.mockResolvedValue(1);

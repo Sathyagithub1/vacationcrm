@@ -77,7 +77,6 @@ async function loadS3Client(): Promise<unknown | null> {
   try {
     // Indirect require so static analysis doesn't treat this as a hard dep.
     const req = eval("require") as NodeRequire;
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = req("@aws-sdk/client-s3");
     return mod ?? null;
   } catch {

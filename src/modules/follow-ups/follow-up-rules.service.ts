@@ -1,19 +1,21 @@
+import type { FollowUpType, TriggerType } from "@prisma/client";
+
 type TenantDb = ReturnType<typeof import("@/lib/prisma").tenantPrisma>;
 
 interface CreateRuleData {
   departmentId?: string | null;
-  triggerType: string;
+  triggerType: TriggerType;
   triggerValue?: string | null;
-  followUpType: string;
+  followUpType: FollowUpType;
   delayHours: number;
   messageTemplate?: string | null;
 }
 
 interface UpdateRuleData {
   departmentId?: string | null;
-  triggerType?: string;
+  triggerType?: TriggerType;
   triggerValue?: string | null;
-  followUpType?: string;
+  followUpType?: FollowUpType;
   delayHours?: number;
   messageTemplate?: string | null;
   isActive?: boolean;
@@ -37,8 +39,9 @@ export async function createFollowUpRule(db: TenantDb, data: CreateRuleData) {
     if (!dept) throw new Error("Department not found");
   }
 
-  const rule = await (db.followUpRule.create as Function)({
+  const rule = await db.followUpRule.create({
     data: {
+      tenantId: db.$tenantId,
       departmentId: data.departmentId || null,
       triggerType: data.triggerType,
       triggerValue: data.triggerValue || null,

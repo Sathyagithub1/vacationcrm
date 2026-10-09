@@ -11,7 +11,7 @@ import { logAudit } from "@/modules/audit/audit.service";
 // GET /api/canned-responses — list canned responses
 export async function GET(request: NextRequest) {
   try {
-    const { user, db } = await requireAuth();
+    const { db } = await requireAuth();
     const { searchParams } = request.nextUrl;
     const departmentId = searchParams.get("departmentId") || undefined;
 

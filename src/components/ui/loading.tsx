@@ -26,7 +26,7 @@ function Spinner({ size = "md", className, ...props }: SpinnerProps) {
   );
 }
 
-export interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {}
+export type SkeletonProps = React.HTMLAttributes<HTMLDivElement>;
 
 function Skeleton({ className, ...props }: SkeletonProps) {
   return (
