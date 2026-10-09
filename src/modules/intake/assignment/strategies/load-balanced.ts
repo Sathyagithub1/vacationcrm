@@ -22,17 +22,18 @@
  * serialises the AGENT SELECTION so concurrent calls read sequentially-
  * committed open-lead counts.
  *
- * Residual gap:  The Lead.assignedTo write happens in the orchestrator AFTER
- * this function returns.  The lock releases when the inner transaction commits
- * (which is the strategy SELECT, not the Lead write).  A concurrent call can
- * therefore enter its SELECT between this function's transaction commit and the
- * orchestrator's Lead.update — it will read the old open-lead count for the
- * just-chosen agent.  Under moderate-to-heavy burst this produces ±25%
- * variance rather than ±75%.
+ * Fix (v2): the lock is now held through the Lead.assignedTo write. v1 held
+ * it only for the SELECT; the orchestrator wrote Lead.assignedTo after the
+ * transaction had committed and released the lock. A concurrent call could
+ * run its SELECT in that window, read the just-chosen agent's stale open-lead
+ * count, and pick the same agent again. Under a burst (and more so on a busy
+ * CI runner) those repeats compounded into one agent getting 30+ of 100 leads.
  *
- * Full elimination of the residual gap requires threading a transaction handle
- * from the orchestrator into the strategy so the lock is held through the Lead
- * write (a larger refactor — deferred to a follow-up, see TODO_BLOCKERS B8).
+ * When the payload carries a leadId, the strategy now claims the lead
+ * (UPDATE leads SET assigned_to = winner) inside the same locked transaction,
+ * so the next caller's SELECT always sees it. The orchestrator's later write
+ * of the same assignee is an idempotent no-op. Selection + claim is therefore
+ * atomic per (tenant, department), and a burst distributes evenly.
  *
  * ── Conventional closed stage slugs ──────────────────────────────────────────
  *
@@ -85,9 +86,7 @@ function loadBalancedLockKey(tenantId: string, departmentId: string | undefined)
 export async function loadBalanced(payload: IntakePayload): Promise<string | null> {
   return prisma.$transaction(async (tx) => {
     // Acquire a transaction-scoped advisory lock per (tenant, department).
-    // Serialises concurrent agent-selection reads so that open-lead counts are
-    // observed sequentially rather than all seeing the same initial snapshot.
-    // See module JSDoc for the residual gap and the planned full fix.
+    // Serialises select-and-claim so each caller sees every earlier claim.
     const key = loadBalancedLockKey(payload.tenantId, payload.departmentId);
     await tx.$executeRaw(
       Prisma.sql`SELECT pg_advisory_xact_lock(${key}::bigint)`,
@@ -115,6 +114,18 @@ export async function loadBalanced(payload: IntakePayload): Promise<string | nul
       LIMIT 1
     `);
 
-    return rows[0]?.id ?? null;
+    const winner = rows[0]?.id ?? null;
+
+    // Claim the lead while still holding the lock, so the next caller's
+    // SELECT counts it against this agent. tenantId in the WHERE keeps a
+    // crafted cross-tenant leadId from being touched (P2025 instead).
+    if (winner && payload.leadId) {
+      await tx.lead.update({
+        where: { id: payload.leadId, tenantId: payload.tenantId },
+        data: { assignedTo: winner },
+      });
+    }
+
+    return winner;
   });
 }

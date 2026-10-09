@@ -226,18 +226,14 @@ describe("intake-burst-distribution", () => {
       const total = values.reduce((a, b) => a + b, 0);
       expect(total).toBe(NUM_INTAKES);
 
-      // Phase 6e B8 fix: advisory lock per (tenant, dept) serialises the
-      // agent-selection SELECT so concurrent calls observe sequentially-
-      // committed open-lead counts rather than all reading the same "0 open"
-      // snapshot. Variance reduced from ±75% (pre-fix) to ~±35% (observed).
+      // Phase 6e B8: an advisory lock per (tenant, dept) is held across the
+      // agent SELECT *and* the Lead.assignedTo claim (v2), so every caller
+      // sees all earlier claims and a burst distributes evenly (observed:
+      // exactly 20 each). Before v2 the lock covered only the SELECT, and a
+      // caller could read a stale count in the window before the orchestrator
+      // wrote the assignment; CI saw one agent reach 31.
       //
-      // Residual gap: the lock is held only for the SELECT, not through the
-      // Lead.assignedTo write in the orchestrator. A call can still enter
-      // its SELECT after the lock releases but before the Lead write commits.
-      // Full fix = thread tx through orchestrator (deferred; tracked in
-      // TODO_BLOCKERS B8 as PARTIALLY_RESOLVED).
-      //
-      // Each agent: 20 ± 7 (range [13, 27]) reflects the v1 partial fix.
+      // Each agent: 20 ± 7 (range [13, 27]).
       for (const [agentId, count] of Object.entries(counts)) {
         expect(count, `agent ${agentId} got ${count} leads (expected 13-27 after B8 v1 advisory-lock fix)`).toBeGreaterThanOrEqual(13);
         expect(count, `agent ${agentId} got ${count} leads (expected 13-27 after B8 v1 advisory-lock fix)`).toBeLessThanOrEqual(27);
