@@ -108,5 +108,20 @@ jobs:
         run: npx prisma migrate deploy
       - name: Unit/integration tests (node env, AI providers mocked, offline)
         run: npm test
+
+  test-ui:
+    name: UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install (frozen lockfile)
+        run: npm ci
+      - name: Prisma generate
+        run: npx prisma generate
       - name: UI component tests (jsdom)
         run: npm run test:ui
