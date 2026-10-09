@@ -14,7 +14,8 @@ export interface DatePickerProps extends Omit<React.InputHTMLAttributes<HTMLInpu
 
 const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
   ({ className, label, value, onChange, min, max, error, id, ...props }, ref) => {
-    const inputId = id || React.useId();
+    const generatedId = React.useId();
+    const inputId = id || generatedId;
 
     return (
       <div className="w-full">
