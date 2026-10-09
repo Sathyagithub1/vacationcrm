@@ -6,9 +6,17 @@
 -- Data safety: this migration deletes NO rows and drops NO columns or tables.
 --   * It drops one UNIQUE index, which only relaxes a constraint.
 --   * It re-creates foreign keys with the referential actions declared in
---     schema.prisma (ON UPDATE CASCADE, and ON DELETE SET NULL where the
---     relation is optional). Every existing row already satisfies these FKs,
---     because the same FKs exist today with stricter or equal semantics.
+--     schema.prisma (ON UPDATE CASCADE, and ON DELETE SET NULL / CASCADE as
+--     declared). Existing rows already satisfy them: same columns, same
+--     referenced tables, so re-adding them cannot fail on current data.
+--   * REVIEW BEFORE APPLYING TO LIVE DATA: some of these FKs currently have no
+--     ON DELETE action (deleting the parent is blocked) and become more
+--     permissive. payments.lead_id / tour_id / booking_id and
+--     voice_calls.lead_id / customer_id / conversation_id / channel_config_id
+--     become ON DELETE SET NULL; voice_calls.tenant_id becomes ON DELETE
+--     CASCADE. Deleting such a parent will then clear (or, for a tenant,
+--     delete) the dependent history instead of failing. This is what
+--     schema.prisma declares; it needs explicit sign-off for production.
 --   * It drops column DEFAULTs that schema.prisma does not declare. Prisma
 --     generates these values client-side (@default(uuid()), @updatedAt), and
 --     no raw SQL in the repo inserts into these tables.
