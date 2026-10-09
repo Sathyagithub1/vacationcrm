@@ -5,7 +5,7 @@
  * park sends message, cross-tenant isolation.
  */
 
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { evaluateConversation } from "./auto-escalate";
 
@@ -144,7 +144,7 @@ describe("auto-escalate", () => {
       { threshold: 3, windowHours: 24, bookingSignals: ["book", "pay", "confirm"] },
       "NOTIFY"
     );
-    const manager = await seedUser(T1, "DEPT_MANAGER", "Manager One");
+    await seedUser(T1, "DEPT_MANAGER", "Manager One");
     const customer = await seedCustomer(T1);
     const conv = await seedConversation(T1, customer.id);
     await seedMessages(T1, conv.id, 3, "just browsing");
@@ -173,7 +173,7 @@ describe("auto-escalate", () => {
 
   it("DURATION rule fires when conversation exceeds maxHours", async () => {
     await seedEscalationRule(T1, "DURATION", { maxHours: 1 }, "NOTIFY");
-    const manager = await seedUser(T1, "DEPT_MANAGER", "Manager Two");
+    await seedUser(T1, "DEPT_MANAGER", "Manager Two");
     const customer = await seedCustomer(T1);
 
     // Create conversation that started 2 hours ago
@@ -193,7 +193,7 @@ describe("auto-escalate", () => {
   });
 
   it("ESCALATE action assigns conversation to senior agent", async () => {
-    const stageId = await seedStage(T1);
+    await seedStage(T1);
     const agent = await seedUser(T1, "AGENT", "Junior Agent");
     const manager = await seedUser(T1, "DEPT_MANAGER", "Senior Manager");
 

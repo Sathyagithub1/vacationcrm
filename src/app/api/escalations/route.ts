@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, requirePermission, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
+import { requireAuth, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { createEscalation } from "@/modules/escalations/escalation.service";
 import { logAudit } from "@/modules/audit/audit.service";
 

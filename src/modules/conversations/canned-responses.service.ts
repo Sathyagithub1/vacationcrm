@@ -43,8 +43,9 @@ export async function createCannedResponse(db: TenantDb, data: CreateCannedRespo
     if (!dept) throw new Error("Department not found");
   }
 
-  const response = await (db.cannedResponse.create as Function)({
+  const response = await db.cannedResponse.create({
     data: {
+      tenantId: db.$tenantId,
       departmentId: data.departmentId || null,
       title: data.title,
       content: data.content,

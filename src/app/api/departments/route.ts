@@ -60,8 +60,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const department = await (db.department.create as Function)({
+    const department = await db.department.create({
       data: {
+        tenantId: user.tenantId,
         name: name.trim(),
         slug,
         description: description?.trim() || null,

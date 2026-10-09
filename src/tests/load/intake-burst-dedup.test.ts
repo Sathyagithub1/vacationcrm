@@ -189,7 +189,6 @@ describe("intake-burst-dedup", () => {
       expect(leads + repeats).toBeLessThanOrEqual(100);
 
       // Log actual numbers so the load profile is visible in CI output
-      // eslint-disable-next-line no-console
       console.log(
         `dedup load result: customers=${customers}, leads=${leads}, repeats=${repeats}`
       );

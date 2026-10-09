@@ -249,7 +249,7 @@ export class TelegramAdapter implements ChannelAdapter {
     }
   }
 
-  verifySignature(headers: Record<string, string>, _body: string): boolean {
+  verifySignature(headers: Record<string, string>): boolean {
     // Telegram webhook verification uses a secret_token set during setWebhook.
     // Telegram sends it back in the X-Telegram-Bot-Api-Secret-Token header.
     const incoming =

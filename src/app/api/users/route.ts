@@ -8,7 +8,7 @@ const VALID_ROLES = ["COMPANY_ADMIN", "DEPT_MANAGER", "AGENT", "VIEWER"];
 // GET /api/users — list all users for the tenant
 export async function GET(request: NextRequest) {
   try {
-    const { user, db } = await requirePermission("users:manage");
+    const { db } = await requirePermission("users:manage");
     const { searchParams } = request.nextUrl;
 
     const q = searchParams.get("q")?.trim() || "";
@@ -113,8 +113,9 @@ export async function POST(request: Request) {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    const newUser = await (db.user.create as Function)({
+    const newUser = await db.user.create({
       data: {
+        tenantId: user.tenantId,
         email: email.toLowerCase().trim(),
         name: name.trim(),
         passwordHash,
@@ -135,7 +136,7 @@ export async function POST(request: Request) {
     });
 
     // Return user without password hash
-    const { passwordHash: _ph, ...safeUser } = newUser;
+    const safeUser = { ...newUser, passwordHash: undefined };
     return NextResponse.json({ user: safeUser }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {

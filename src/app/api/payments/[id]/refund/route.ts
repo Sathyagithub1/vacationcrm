@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         : undefined;
 
     // 1. Load payment — tenant-scoped via tenantPrisma
-    const payment = await (db.payment.findFirst as Function)({
+    const payment = await db.payment.findFirst({
       where: { id },
       select: {
         id: true,
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // here will affect zero rows and we'll catch the P2025 to return 409.
     // This eliminates the double-refund window between findFirst and update.
     try {
-      await (db.payment.update as Function)({
+      await db.payment.update({
         where: { id: payment.id, status: "CAPTURED" },
         data: { status: "REFUND_PENDING" },
       });
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       refundResult = await refundPayment(user.tenantId, payment.razorpayPaymentId, amountPaise);
     } catch (err: unknown) {
       // Roll back: only flip CAPTURED if we still hold REFUND_PENDING
-      await (db.payment.update as Function)({
+      await db.payment.update({
         where: { id: payment.id, status: "REFUND_PENDING" },
         data: { status: "CAPTURED" },
       }).catch(() => {});

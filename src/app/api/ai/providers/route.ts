@@ -10,7 +10,7 @@ const VALID_PROVIDERS = ["CLAUDE", "OPENAI", "GEMINI", "CUSTOM"] as const;
 type ProviderName = (typeof VALID_PROVIDERS)[number];
 
 // GET /api/ai/providers — list all configured AI providers (apiKey never returned)
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
     const { db } = await requirePermission("settings:ai");
 

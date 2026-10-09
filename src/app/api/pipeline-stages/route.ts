@@ -77,8 +77,9 @@ export async function POST(request: Request) {
       finalPosition = lastStage ? lastStage.position + 1 : 0;
     }
 
-    const stage = await (db.pipelineStage.create as Function)({
+    const stage = await db.pipelineStage.create({
       data: {
+        tenantId: user.tenantId,
         name: name.trim(),
         slug,
         color: color || "#6B7280",

@@ -27,7 +27,7 @@ const DEFAULT_ANALYTICS_SETTINGS: AnalyticsSettingsPayload = {
 };
 
 // ── GET ───────────────────────────────────────────────────────────────────────
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
     const { user } = await requirePermission("settings:analytics");
 

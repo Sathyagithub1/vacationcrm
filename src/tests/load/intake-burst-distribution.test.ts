@@ -216,7 +216,6 @@ describe("intake-burst-distribution", () => {
       const counts = await runScenario(TENANT_LB, agentIdsLB);
 
       // Log per-agent distribution for the report
-      // eslint-disable-next-line no-console
       console.log("LOAD_BALANCED distribution:", counts);
 
       const values = Object.values(counts);

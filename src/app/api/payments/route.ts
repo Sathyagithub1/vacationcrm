@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Persist Payment row — tenantId auto-injected by tenantPrisma
-    const payment = await (db.payment.create as Function)({
+    const payment = await db.payment.create({
       data: {
         tenantId: user.tenantId,
         customerId,
@@ -194,7 +194,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [payments, total, grouped] = await Promise.all([
-      (db.payment.findMany as Function)({
+      db.payment.findMany({
         where,
         orderBy: { createdAt: "desc" },
         skip,
@@ -206,8 +206,8 @@ export async function GET(request: NextRequest) {
           booking: { select: { id: true, status: true } },
         },
       }),
-      (db.payment.count as Function)({ where }),
-      (db.payment.groupBy as Function)({
+      db.payment.count({ where }),
+      db.payment.groupBy({
         by: ["status"],
         where: summaryWhere,
         _sum: { amountPaise: true },

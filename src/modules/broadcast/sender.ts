@@ -28,7 +28,6 @@ export interface SendResult {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const RATE_LIMIT_PER_SECOND = 10; // messages per second per ChannelConfig
-const BATCH_SIZE = 50; // recipients per DB batch
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

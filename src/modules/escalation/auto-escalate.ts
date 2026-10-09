@@ -233,8 +233,9 @@ async function executeEscalate(
 
   // Create Escalation record if we have a lead
   if (conv.leadId && conv.assignedAgentId) {
-    await (db.escalation.create as Function)({
+    await db.escalation.create({
       data: {
+        tenantId,
         leadId: conv.leadId,
         conversationId,
         reason: "UNRESPONSIVE",

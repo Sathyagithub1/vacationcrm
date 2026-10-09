@@ -30,7 +30,6 @@ type CustomerMemoryKind = "FACT" | "PREFERENCE" | "SUMMARY";
 
 // Helper cast for new model accessors not yet in generated client
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyPrisma = prisma as any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyTenantDb = (db: unknown) => db as any;

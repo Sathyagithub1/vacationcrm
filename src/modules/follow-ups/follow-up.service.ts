@@ -1,9 +1,11 @@
+import type { FollowUpType } from "@prisma/client";
+
 type TenantDb = ReturnType<typeof import("@/lib/prisma").tenantPrisma>;
 
 interface CreateFollowUpData {
   leadId: string;
   assignedTo: string;
-  type: string;
+  type: FollowUpType;
   scheduledAt: string;
   messageTemplate?: string | null;
 }
@@ -26,8 +28,9 @@ export async function createFollowUp(db: TenantDb, data: CreateFollowUpData) {
   const assignee = await db.user.findFirst({ where: { id: data.assignedTo, isActive: true } });
   if (!assignee) throw new Error("Assignee not found");
 
-  const followUp = await (db.followUp.create as Function)({
+  const followUp = await db.followUp.create({
     data: {
+      tenantId: db.$tenantId,
       leadId: data.leadId,
       assignedTo: data.assignedTo,
       type: data.type,

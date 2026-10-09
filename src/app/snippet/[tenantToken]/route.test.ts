@@ -15,7 +15,6 @@ import { GET } from "./route";
 // ── Tenant IDs ────────────────────────────────────────────────────────────────
 
 const T_SNIPPET_FOUND   = "t-snip-found";
-const T_SNIPPET_MISSING = "t-snip-missing"; // we'll test with a made-up token
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 

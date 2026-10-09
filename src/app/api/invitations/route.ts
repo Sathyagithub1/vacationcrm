@@ -77,8 +77,9 @@ export async function POST(request: Request) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // 7-day expiry
 
-    const invitation = await (db.invitation.create as Function)({
+    const invitation = await db.invitation.create({
       data: {
+        tenantId: user.tenantId,
         email: normalizedEmail,
         role,
         departmentId: departmentId || null,
@@ -127,7 +128,7 @@ export async function POST(request: Request) {
     });
 
     // Do not return token/URL in the response — it is sent via email only
-    const { token: _token, ...safeInvitation } = invitation;
+    const safeInvitation = { ...invitation, token: undefined };
     return NextResponse.json({ invitation: safeInvitation }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {

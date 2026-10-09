@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     const trimmedMessage = message.trim();
 
     // ── Verify conversation exists and belongs to this tenant ─────────────────
-    const conversation = await (db.conversation.findFirst as Function)({
+    const conversation = await db.conversation.findFirst({
       where: { id: conversationId },
       select: { id: true, status: true, customerId: true },
     }) as { id: string; status: string; customerId: string | null } | null;
@@ -63,8 +63,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Save customer message ─────────────────────────────────────────────────
-    const customerMessage = await (db.message.create as Function)({
+    const customerMessage = await db.message.create({
       data: {
+        tenantId: tenantId,
         conversationId,
         senderType: "CUSTOMER",
         senderId: null,
@@ -82,14 +83,15 @@ export async function POST(request: NextRequest) {
     if (routeDecision.route === "human") {
       // Mark conversation for human takeover if not already
       if (conversation.status !== "HUMAN_TAKEOVER") {
-        await (db.conversation.update as Function)({
+        await db.conversation.update({
           where: { id: conversationId },
           data: { status: "HUMAN_TAKEOVER" },
         });
       }
 
-      const handoffMessage = await (db.message.create as Function)({
+      const handoffMessage = await db.message.create({
         data: {
+          tenantId: tenantId,
           conversationId,
           senderType: "BOT",
           senderId: null,
@@ -110,8 +112,9 @@ export async function POST(request: NextRequest) {
     const aiProvider = await getActiveProvider(db);
     if (!aiProvider) {
       // No AI configured — send a graceful fallback
-      const fallbackMessage = await (db.message.create as Function)({
+      const fallbackMessage = await db.message.create({
         data: {
+          tenantId: tenantId,
           conversationId,
           senderType: "BOT",
           senderId: null,
@@ -207,8 +210,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Save bot message
-    const botMessage = await (db.message.create as Function)({
+    const botMessage = await db.message.create({
       data: {
+        tenantId: tenantId,
         conversationId,
         senderType: "BOT",
         senderId: null,

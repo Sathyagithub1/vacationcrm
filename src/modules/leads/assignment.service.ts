@@ -1,4 +1,3 @@
-import { prisma } from "@/lib/prisma";
 import { createNotification } from "@/modules/notifications/notification.service";
 
 type TenantDb = ReturnType<typeof import("@/lib/prisma").tenantPrisma>;
@@ -22,8 +21,9 @@ export async function assignLead(db: TenantDb, leadId: string, agentId: string, 
   });
 
   // Create ASSIGNMENT activity
-  await (db.leadActivity.create as Function)({
+  await db.leadActivity.create({
     data: {
+      tenantId,
       leadId,
       userId: assignedBy,
       type: "ASSIGNMENT",

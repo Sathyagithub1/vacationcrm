@@ -23,6 +23,11 @@ if (process.env.NODE_ENV !== "production") {
 // Tenant-scoped Prisma client
 export function tenantPrisma(tenantId: string) {
   return prisma.$extends({
+    // Expose the scope so callers can pass `tenantId: db.$tenantId` in create
+    // data and satisfy Prisma's input types honestly. $allOperations below
+    // still forces the same tenantId onto every create, so this cannot widen
+    // scope. Also available on interactive-transaction clients.
+    client: { $tenantId: tenantId },
     query: {
       async $allOperations({ model, operation, args, query }) {
         if (model === "Tenant") return query(args);
@@ -93,3 +98,9 @@ export function tenantPrisma(tenantId: string) {
     },
   });
 }
+
+/** A tenant-scoped client, as returned by tenantPrisma(). */
+export type TenantDb = ReturnType<typeof tenantPrisma>;
+
+/** The client handed to a TenantDb interactive-transaction callback. */
+export type TenantTx = Parameters<Parameters<TenantDb["$transaction"]>[0]>[0];

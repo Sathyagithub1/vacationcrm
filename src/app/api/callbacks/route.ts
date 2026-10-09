@@ -102,8 +102,9 @@ export async function POST(request: Request) {
       }
     }
 
-    const callback = await (db.callback.create as Function)({
+    const callback = await db.callback.create({
       data: {
+        tenantId: user.tenantId,
         leadId,
         departmentId,
         assignedTo: assignedTo || null,

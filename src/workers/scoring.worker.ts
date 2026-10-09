@@ -5,7 +5,8 @@
  * and runs nightly batch scoring for all active leads.
  */
 import { Worker, Job } from "bullmq";
-import { prisma, tenantPrisma } from "@/lib/prisma";
+import type { LeadScoreTier } from "@prisma/client";
+import { tenantPrisma } from "@/lib/prisma";
 import { getRedis } from "@/lib/redis";
 
 const QUEUE_NAME = "scoring";
@@ -57,7 +58,7 @@ async function scoreOneLead(
   tenantId: string,
   leadId: string
 ) {
-  const lead = await (db.lead.findUnique as Function)({
+  const lead = await db.lead.findUnique({
     where: { id: leadId },
     include: {
       customer: true,
@@ -89,7 +90,7 @@ async function scoreOneLead(
   const sourceScores: Record<string, number> = {
     WHATSAPP: 30, WEBSITE: 25, FB: 20, IG: 20, MANUAL: 15,
   };
-  const travelDate = lead.travelDate ? new Date(lead.travelDate as string) : null;
+  const travelDate = lead.travelDate ? new Date(lead.travelDate) : null;
   const daysUntilTravel = travelDate
     ? Math.max(0, (travelDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : 999;
@@ -112,7 +113,9 @@ async function scoreOneLead(
     const convStats = await db.conversionStat.findMany({
       where: {
         dimension: { in: ["DEPARTMENT", "SOURCE"] },
-        dimensionValue: { in: [lead.departmentId, lead.source] },
+        dimensionValue: {
+          in: [lead.departmentId, lead.source].filter((v): v is NonNullable<typeof v> => v !== null),
+        },
       },
     });
     if (convStats.length > 0) {
@@ -156,10 +159,10 @@ async function scoreOneLead(
       conversation * 0.15
   );
   const clampedScore = Math.max(0, Math.min(100, totalScore));
-  const tier = clampedScore >= 76 ? "HOT" : clampedScore >= 51 ? "WARM" : clampedScore >= 26 ? "COOL" : "COLD";
+  const tier: LeadScoreTier = clampedScore >= 76 ? "HOT" : clampedScore >= 51 ? "WARM" : clampedScore >= 26 ? "COOL" : "COLD";
 
   // Upsert lead score
-  const existing = await (db.leadScore.findUnique as Function)({
+  const existing = await db.leadScore.findUnique({
     where: { leadId },
   });
 
@@ -181,12 +184,12 @@ async function scoreOneLead(
   };
 
   if (existing) {
-    await (db.leadScore.update as Function)({
+    await db.leadScore.update({
       where: { leadId },
       data: scoreData,
     });
   } else {
-    await (db.leadScore.create as Function)({
+    await db.leadScore.create({
       data: scoreData,
     });
   }

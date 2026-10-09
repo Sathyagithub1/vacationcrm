@@ -105,8 +105,9 @@ export async function POST(
     // Create Escalation record (if lead is attached)
     let escalation = null;
     if (conversation.leadId) {
-      escalation = await (db.escalation.create as Function)({
+      escalation = await db.escalation.create({
         data: {
+          tenantId: user.tenantId,
           leadId: conversation.leadId,
           conversationId,
           reason: "MANUAL",

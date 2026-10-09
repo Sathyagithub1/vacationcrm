@@ -48,7 +48,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { id: tourId } = await context.params;
-    const { user, db } = await requirePermission("leads:create");
+    const { db } = await requirePermission("leads:create");
 
     // Verify tour belongs to tenant
     const tour = await db.tour.findFirst({ where: { id: tourId } });

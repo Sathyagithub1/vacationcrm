@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import type { KnowledgeBaseType } from "@prisma/client";
 import { requirePermission, unauthorized, forbidden } from "@/modules/auth/tenant.middleware";
 import { logAudit } from "@/modules/audit/audit.service";
 
 const VALID_KB_TYPES = ["FAQ", "SOP", "PRICING", "DOCUMENT", "CUSTOM"];
 
 interface ImportEntry {
-  type: string;
+  type: KnowledgeBaseType;
   title: string;
   content: string;
 }
@@ -60,13 +61,14 @@ export async function POST(request: Request) {
     }
 
     const data = entries.map((entry: ImportEntry) => ({
+      tenantId: user.tenantId,
       departmentId,
       type: entry.type,
       title: entry.title.trim(),
       content: entry.content.trim(),
     }));
 
-    const result = await (db.knowledgeBase.createMany as Function)({
+    const result = await db.knowledgeBase.createMany({
       data,
       skipDuplicates: false,
     });

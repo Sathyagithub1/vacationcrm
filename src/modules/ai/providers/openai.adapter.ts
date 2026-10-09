@@ -2,7 +2,6 @@ import OpenAI from "openai";
 import type {
   AIProvider,
   ChatChunk,
-  ChatMessage,
   ChatParams,
   SpamClassification,
   ToolDefinition,

@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, db } = await requireAuth();
+    const { db } = await requireAuth();
     const { id } = await params;
 
     const fileRecord = await db.fileUpload.findFirst({ where: { id } });

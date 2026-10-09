@@ -2,10 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import type {
   AIProvider,
   ChatChunk,
-  ChatMessage,
   ChatParams,
   SpamClassification,
-  ToolDefinition,
 } from "./provider.interface";
 import {
   parseFirstJsonObject,
@@ -139,7 +137,7 @@ export class ClaudeAdapter implements AIProvider {
     };
   }
 
-  async generateEmbedding(_text: string): Promise<number[]> {
+  async generateEmbedding(): Promise<number[]> {
     throw new Error(
       "Claude does not support embeddings directly. Use OpenAI (text-embedding-3-small) or Gemini (text-embedding-004) for embedding generation."
     );

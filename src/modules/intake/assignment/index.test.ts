@@ -244,7 +244,7 @@ describe("assignLead orchestrator", () => {
     // Seed a lead in tenant A with a known unassigned state
     await ensureDept(DEPT, T5A);
     await upsertStrategy(T5A, "ROUND_ROBIN");
-    const agentA = await createAgent({ tenantId: T5A, departmentId: DEPT });
+    await createAgent({ tenantId: T5A, departmentId: DEPT });
     const leadIdA = await createLead(T5A, DEPT);
 
     // Seed tenant B with its own agent so fallback doesn't fail for a missing-agent reason

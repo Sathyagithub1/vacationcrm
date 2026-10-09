@@ -1,3 +1,5 @@
+import type { KnowledgeBaseType } from "@prisma/client";
+
 type TenantDb = ReturnType<typeof import("@/lib/prisma").tenantPrisma>;
 
 interface KnowledgeBaseFilters {
@@ -8,7 +10,7 @@ interface KnowledgeBaseFilters {
 
 interface CreateKnowledgeBaseData {
   departmentId: string;
-  type: string;
+  type: KnowledgeBaseType;
   title: string;
   content: string;
 }
@@ -16,7 +18,7 @@ interface CreateKnowledgeBaseData {
 interface UpdateKnowledgeBaseData {
   title?: string;
   content?: string;
-  type?: string;
+  type?: KnowledgeBaseType;
   isActive?: boolean;
 }
 
@@ -39,8 +41,9 @@ export async function listKnowledgeBases(db: TenantDb, filters: KnowledgeBaseFil
 }
 
 export async function createKnowledgeBase(db: TenantDb, data: CreateKnowledgeBaseData) {
-  return (db.knowledgeBase.create as Function)({
+  return db.knowledgeBase.create({
     data: {
+      tenantId: db.$tenantId,
       departmentId: data.departmentId,
       type: data.type,
       title: data.title,
@@ -68,7 +71,7 @@ export async function updateKnowledgeBase(db: TenantDb, id: string, data: Update
     updateData.embeddingModel = null;
   }
 
-  return (db.knowledgeBase.update as Function)({
+  return db.knowledgeBase.update({
     where: { id },
     data: updateData,
     include: {

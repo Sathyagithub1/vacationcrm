@@ -4,7 +4,7 @@
  * Finds upcoming callbacks (next 30 minutes) that haven't been reminded yet,
  * and sends reminder notifications to assigned agents.
  */
-import { Worker, Job } from "bullmq";
+import { Worker } from "bullmq";
 import { prisma } from "@/lib/prisma";
 import { getRedis } from "@/lib/redis";
 import { createNotification } from "@/modules/notifications/notification.service";
@@ -104,7 +104,7 @@ export function createCallbackWorker() {
 
   const worker = new Worker(
     QUEUE_NAME,
-    async (_job: Job) => {
+    async () => {
       return processUpcomingCallbacks();
     },
     {
